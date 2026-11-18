@@ -1,0 +1,51 @@
+{
+  "tv_aws_users.users": [
+    "aws_alb.app~1",
+    "aws_alb.app~2"
+  ],
+  "tv_aws_users.operator": [
+    "aws_instance.nagios",
+    "aws_instance.app_server~1",
+    "aws_instance.app_server~2",
+    "aws_instance.app_server~3"
+  ],
+  "aws_vpc.lab": [
+    "tv_aws_az.az_a",
+    "tv_aws_az.az_b",
+    "aws_internet_gateway.igw"
+  ],
+  "tv_aws_az.az_a": [
+    "aws_subnet.public~1"
+  ],
+  "tv_aws_az.az_b": [
+    "aws_subnet.public~2"
+  ],
+  "aws_subnet.public~1": [
+    "aws_alb.app~1",
+    "aws_instance.app_server~1",
+    "aws_instance.app_server~3",
+    "aws_instance.nagios"
+  ],
+  "aws_subnet.public~2": [
+    "aws_alb.app~2",
+    "aws_instance.app_server~2"
+  ],
+  "aws_alb.app~1": [
+    "aws_instance.app_server~1",
+    "aws_instance.app_server~2",
+    "aws_instance.app_server~3"
+  ],
+  "aws_alb.app~2": [
+    "aws_instance.app_server~1",
+    "aws_instance.app_server~2",
+    "aws_instance.app_server~3"
+  ],
+  "aws_instance.nagios": [
+    "aws_alb.app~1",
+    "aws_alb.app~2",
+    "aws_instance.app_server~1",
+    "aws_instance.app_server~2",
+    "aws_instance.app_server~3"
+  ],
+  "aws_internet_gateway.igw": []
+}

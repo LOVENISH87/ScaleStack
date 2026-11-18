@@ -1,0 +1,87 @@
+---
+# Opt-in failure injection for the lab ONLY. Never enabled by default.
+#
+# Injects (or restores) a failing /health response on ONE selected,
+# Terraform-managed lab application server by creating/removing the marker
+# file /etc/health-app/unhealthy that health_app.py checks on every request.
+#
+# Required variables:
+#   confirm_failure_injection=true   explicit acknowledgement (required)
+#   failure_demo_target=<inventory_hostname>   one app server, e.g. an IP from inventory
+#   failure_demo_action=inject|restore
+#
+# Inject:  ansible-playbook playbooks/failure_demo.yml --limit <host> \
+#            -e confirm_failure_injection=true -e failure_demo_target=<host> \
+#            -e failure_demo_action=inject
+# Restore: same with -e failure_demo_action=restore
+#
+# This playbook must not run with confirm_failure_injection unset/false and
+# must never be wired into automation that enables it by default.
+
+- name: Failure injection lab demo (opt-in)
+  hosts: app_servers
+  gather_facts: false
+
+  pre_tasks:
+    - name: Require explicit confirmation for failure injection
+      ansible.builtin.assert:
+        that:
+          - confirm_failure_injection | default('false') | bool
+        fail_msg: >-
+          Refusing to inject failure. Re-run with -e confirm_failure_injection=true
+          only if you intend to break this lab server on purpose.
+        success_msg: "Failure injection explicitly confirmed."
+
+    - name: Require a single target host
+      ansible.builtin.assert:
+        that:
+          - failure_demo_target | default('') | length > 0
+          - failure_demo_action | default('') in ['inject', 'restore']
+        fail_msg: >-
+          Pass -e failure_demo_target=<host> (one inventory hostname) and
+          -e failure_demo_action=inject|restore.
+
+    - name: Require the target to be a Terraform-managed lab app server
+      ansible.builtin.assert:
+        that:
+          - failure_demo_target in groups['app_servers']
+        fail_msg: >-
+          {{ failure_demo_target }} is not in the Terraform-managed lab inventory
+          (group app_servers, selected by Project/Lab tags). Refusing to inject.
+
+    - name: Restrict to the requested host only
+      ansible.builtin.meta: end_host
+      when: inventory_hostname != failure_demo_target
+
+  tasks:
+    - name: Inject failure (make /health return 503)
+      ansible.builtin.file:
+        path: /etc/health-app/unhealthy
+        state: touch
+        owner: healthapp
+        group: healthapp
+        mode: "0644"
+      when: failure_demo_action == 'inject'
+
+    - name: Restore health (remove the marker file)
+      ansible.builtin.file:
+        path: /etc/health-app/unhealthy
+        state: absent
+      when: failure_demo_action == 'restore'
+
+    - name: Verify the health endpoint reflects the new state
+      ansible.builtin.command:
+        cmd: curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:{{ app_port }}{{ app_health_path }}
+      register: verify_health
+      changed_when: false
+      until: >-
+        (failure_demo_action == 'inject' and verify_health.stdout | trim == '503') or
+        (failure_demo_action == 'restore' and verify_health.stdout | trim == '200')
+      retries: 6
+      delay: 5
+
+    - name: Report the resulting health state
+      ansible.builtin.debug:
+        msg: >-
+          {{ failure_demo_action }} complete on {{ inventory_hostname }}:
+          /health now returns HTTP {{ verify_health.stdout | trim }}.

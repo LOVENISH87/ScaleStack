@@ -1,0 +1,284 @@
+---
+# Health-gated serial patching of the Terraform-managed lab app servers.
+#
+# One server at a time (serial: 1, any_errors_fatal: true). For each server:
+#   confirm -> verify membership -> record in_progress -> deregister from ALB
+#   -> wait for drain -> apt dist-upgrade -> reboot only if required
+#   -> wait for SSH -> fresh local health check -> re-register -> wait healthy
+#
+# On any failure the rollout HALTS immediately: the failed server is left OUT
+# of the target group, remaining servers are NOT attempted, and the failed
+# step + details are recorded in the report file.
+#
+# Usage:
+#   ansible-playbook playbooks/patch.yml -e confirm_patch=true \
+#     -e target_group_arn=$(terraform -chdir=../terraform output -raw target_group_arn)
+#
+# Safe non-destructive preview (no changes to targets or packages):
+#   ansible-playbook playbooks/patch.yml --check --diff -e confirm_patch=true \
+#     -e target_group_arn=$(terraform -chdir=../terraform output -raw target_group_arn)
+
+- name: Health-gated serial patching of lab app servers
+  hosts: app_servers
+  serial: 1
+  any_errors_fatal: true
+  gather_facts: true
+
+  vars:
+    # Fixed, stable path: identical for every host in the run. Override with
+    # -e patch_report_file=/path/to/report.json if you want a custom name.
+    patch_report_file: "{{ playbook_dir }}/../../patch-report.json"
+    drain_retries: 36        # 36 x 5s = 3 minutes max drain wait
+    drain_delay: 5
+    health_retries: 24       # 24 x 5s = 2 minutes max health wait after reboot
+    health_delay: 5
+    target_healthy_retries: 24  # 24 x 10s = 4 minutes max wait for ALB healthy
+    target_healthy_delay: 10
+    reboot_timeout: 600
+
+  pre_tasks:
+    - name: Require explicit patch confirmation
+      ansible.builtin.assert:
+        that:
+          - confirm_patch | default('false') | bool
+        fail_msg: >-
+          Refusing to patch. Re-run with -e confirm_patch=true to approve patching
+          of the lab application servers.
+        success_msg: "Patch confirmation received."
+
+    - name: Require the ALB target group ARN
+      ansible.builtin.assert:
+        that:
+          - target_group_arn | default('') | length > 0
+          - target_group_arn is match('^arn:aws:elasticloadbalancing:')
+        fail_msg: >-
+          Refusing to patch. Pass -e target_group_arn=<terraform output -raw target_group_arn>.
+        success_msg: "Target group ARN provided."
+
+    - name: Require AWS region
+      ansible.builtin.assert:
+        that:
+          - aws_region | default('') | length > 0
+
+    - name: Initialize the patch report
+      ansible.builtin.include_role:
+        name: patch_report
+        tasks_from: init
+
+  tasks:
+    - name: Patch this server through the health gate
+      block:
+        - name: Record server as in progress
+          ansible.builtin.set_fact:
+            current_step: "start"
+        - name: Record in-progress event
+          ansible.builtin.include_role:
+            name: patch_report
+            tasks_from: record
+          vars:
+            report_status: in_progress
+            report_step: start
+            report_details: "patch run started for {{ inventory_hostname }}"
+
+        - name: Get EC2 instance metadata
+          ansible.builtin.set_fact:
+            current_step: "ec2_metadata"
+        - name: Read instance id
+          amazon.aws.ec2_metadata_facts:
+        - name: Capture instance id
+          ansible.builtin.set_fact:
+            ec2_instance_id: "{{ ansible_ec2_instance_id }}"
+
+        - name: Verify the server belongs to the Terraform-managed target group
+          ansible.builtin.set_fact:
+            current_step: "verify_target_group_membership"
+        - name: Check target group membership
+          ansible.builtin.command:
+            cmd: >-
+              aws elbv2 describe-target-health
+              --target-group-arn {{ target_group_arn }}
+              --region {{ aws_region }}
+              --query "TargetHealthDescriptions[?Target.Id=='{{ ec2_instance_id }}'].Target.Id | [0]"
+              --output text
+          delegate_to: localhost
+          become: false
+
+          register: target_membership
+          changed_when: false
+          check_mode: false
+        - name: Assert membership in the target group
+          ansible.builtin.assert:
+            that:
+              - target_membership.stdout | trim == ec2_instance_id
+            fail_msg: >-
+              {{ inventory_hostname }} ({{ ec2_instance_id }}) is not registered in
+              target group {{ target_group_arn }}. Refusing to touch it.
+            success_msg: "{{ inventory_hostname }} is a member of the target group."
+
+        - name: Deregister the server from the ALB target group
+          ansible.builtin.set_fact:
+            current_step: "deregister"
+        - name: Deregister target
+          ansible.builtin.command:
+            cmd: >-
+              aws elbv2 deregister-targets
+              --target-group-arn {{ target_group_arn }}
+              --region {{ aws_region }}
+              --targets Id={{ ec2_instance_id }}
+          delegate_to: localhost
+          become: false
+
+          register: deregister_result
+          changed_when: deregister_result.rc == 0
+
+        - name: Wait until the ALB stops routing traffic to the server
+          ansible.builtin.set_fact:
+            current_step: "wait_for_drain"
+        - name: Wait for target state unused (drained)
+          ansible.builtin.command:
+            cmd: >-
+              aws elbv2 describe-target-health
+              --target-group-arn {{ target_group_arn }}
+              --region {{ aws_region }}
+              --targets Id={{ ec2_instance_id }}
+              --query 'TargetHealthDescriptions[0].TargetHealth.State'
+              --output text
+          delegate_to: localhost
+          become: false
+
+          register: drain_state
+          changed_when: false
+          when: not (ansible_check_mode | default(false))
+          until: drain_state.stdout | trim == 'unused'
+          retries: "{{ drain_retries }}"
+          delay: "{{ drain_delay }}"
+
+        - name: Apply OS package updates
+          ansible.builtin.set_fact:
+            current_step: "apt_dist_upgrade"
+        - name: Update apt cache and apply dist-upgrade
+          ansible.builtin.apt:
+            update_cache: true
+            upgrade: dist
+          register: apt_result
+
+        - name: Check whether a reboot is required
+          ansible.builtin.set_fact:
+            current_step: "check_reboot_required"
+        - name: Look for /var/run/reboot-required
+          ansible.builtin.stat:
+            path: /var/run/reboot-required
+          register: reboot_required_file
+
+        - name: Reboot if required
+          ansible.builtin.set_fact:
+            current_step: "reboot"
+        - name: Reboot the server
+          ansible.builtin.reboot:
+            reboot_timeout: "{{ reboot_timeout }}"
+            msg: "Reboot triggered by health-gated patching after package updates"
+          when: reboot_required_file.stat.exists
+          register: reboot_result
+
+        - name: Wait for SSH to return
+          ansible.builtin.set_fact:
+            current_step: "wait_for_ssh"
+        - name: Wait for SSH connection
+          ansible.builtin.wait_for_connection:
+            timeout: "{{ reboot_timeout }}"
+            connect_timeout: 5
+            sleep: 5
+
+        - name: Run a fresh health check against the server
+          ansible.builtin.set_fact:
+            current_step: "health_check"
+        - name: Curl the local health endpoint over SSH (app port is not publicly reachable)
+          ansible.builtin.command:
+            cmd: curl -fsS -o /dev/null -w "%{http_code}" http://127.0.0.1:{{ app_port }}{{ app_health_path }}
+          register: health_check
+          changed_when: false
+          check_mode: false
+          until: health_check.stdout | trim == "200"
+          retries: "{{ health_retries }}"
+          delay: "{{ health_delay }}"
+
+        - name: Re-register the server with the ALB target group
+          ansible.builtin.set_fact:
+            current_step: "register"
+        - name: Register target
+          ansible.builtin.command:
+            cmd: >-
+              aws elbv2 register-targets
+              --target-group-arn {{ target_group_arn }}
+              --region {{ aws_region }}
+              --targets Id={{ ec2_instance_id }}
+          delegate_to: localhost
+          become: false
+
+          register: register_result
+          changed_when: register_result.rc == 0
+
+        - name: Wait until the ALB reports the server healthy
+          ansible.builtin.set_fact:
+            current_step: "wait_for_healthy"
+        - name: Wait for target state healthy
+          ansible.builtin.command:
+            cmd: >-
+              aws elbv2 describe-target-health
+              --target-group-arn {{ target_group_arn }}
+              --region {{ aws_region }}
+              --targets Id={{ ec2_instance_id }}
+              --query 'TargetHealthDescriptions[0].TargetHealth.State'
+              --output text
+          delegate_to: localhost
+          become: false
+
+          register: healthy_state
+          changed_when: false
+          when: not (ansible_check_mode | default(false))
+          until: healthy_state.stdout | trim == 'healthy'
+          retries: "{{ target_healthy_retries }}"
+          delay: "{{ target_healthy_delay }}"
+
+        - name: Record server as patched
+          ansible.builtin.set_fact:
+            current_step: "patched"
+        - name: Record patched event
+          ansible.builtin.include_role:
+            name: patch_report
+            tasks_from: record
+          vars:
+            report_status: patched
+            report_step: done
+            report_details: "package updates applied; reboot={{ 'yes' if reboot_required_file.stat.exists else 'no' }}; back in service healthy"
+
+      rescue:
+        - name: Record the failure
+          ansible.builtin.include_role:
+            name: patch_report
+            tasks_from: record
+          vars:
+            report_status: failed
+            report_step: "{{ current_step | default('unknown') }}"
+            report_details: "{{ ansible_failed_result | default({}) | to_json }}"
+
+        - name: Summarize the report so far
+          ansible.builtin.include_role:
+            name: patch_report
+            tasks_from: summarize
+
+        - name: Halt the rollout
+          ansible.builtin.fail:
+            msg: >-
+              ROLLOUT HALTED on {{ inventory_hostname }} at step '{{ current_step | default('unknown') }}'.
+              The failed server was NOT re-registered with the ALB target group.
+              Remaining servers were NOT patched. See the report for details:
+              {{ patch_report_file }}
+              Recovery is an operator action (fix the server, then re-run); this playbook
+              does not roll back OS package updates automatically.
+
+  post_tasks:
+    - name: Final patch report
+      ansible.builtin.include_role:
+        name: patch_report
+        tasks_from: summarize

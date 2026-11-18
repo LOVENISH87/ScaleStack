@@ -326,3 +326,4 @@ whether the app is idle.
 cd terraform && terraform init -backend=false && terraform validate && terraform fmt -check -recursive
 cd ../ansible && ansible-playbook --syntax-check playbooks/bootstrap.yml playbooks/patch.yml playbooks/configure_nagios.yml playbooks/failure_demo.yml
 ```
+# ScaleStack

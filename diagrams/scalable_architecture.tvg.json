@@ -1,0 +1,68 @@
+{
+  "tv_aws_users.users": [
+    "aws_alb.app~1",
+    "aws_alb.app~2"
+  ],
+  "tv_aws_users.developer": [
+    "tv_aws_git_repository.github"
+  ],
+  "tv_aws_git_repository.github": [
+    "aws_instance.app~1",
+    "aws_instance.app~2"
+  ],
+  "aws_vpc.main": [
+    "tv_aws_az.az_a",
+    "tv_aws_az.az_b",
+    "aws_internet_gateway.igw"
+  ],
+  "tv_aws_az.az_a": [
+    "aws_subnet.public~1"
+  ],
+  "tv_aws_az.az_b": [
+    "aws_subnet.public~2"
+  ],
+  "aws_subnet.public~1": [
+    "aws_alb.app~1",
+    "aws_autoscaling_group.asg~1",
+    "aws_instance.monitoring"
+  ],
+  "aws_subnet.public~2": [
+    "aws_alb.app~2",
+    "aws_autoscaling_group.asg~2"
+  ],
+  "aws_autoscaling_group.asg~1": [
+    "aws_instance.app~1"
+  ],
+  "aws_autoscaling_group.asg~2": [
+    "aws_instance.app~2"
+  ],
+  "aws_alb.app~1": [
+    "aws_instance.app~1",
+    "aws_instance.app~2"
+  ],
+  "aws_alb.app~2": [
+    "aws_instance.app~1",
+    "aws_instance.app~2"
+  ],
+  "aws_instance.app~1": [
+    "aws_cloudwatch_metric_alarm.cpu_alarm",
+    "aws_s3_bucket.log_backups",
+    "aws_ebs_volume.data_volume~1"
+  ],
+  "aws_instance.app~2": [
+    "aws_cloudwatch_metric_alarm.cpu_alarm",
+    "aws_s3_bucket.log_backups",
+    "aws_ebs_volume.data_volume~2"
+  ],
+  "aws_cloudwatch_metric_alarm.cpu_alarm": [],
+  "aws_instance.monitoring": [
+    "aws_alb.app~1",
+    "aws_alb.app~2",
+    "aws_instance.app~1",
+    "aws_instance.app~2"
+  ],
+  "aws_s3_bucket.log_backups": [],
+  "aws_ebs_volume.data_volume~1": [],
+  "aws_ebs_volume.data_volume~2": [],
+  "aws_internet_gateway.igw": []
+}

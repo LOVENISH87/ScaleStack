@@ -1,0 +1,12 @@
+{
+  "run_id": "20261115T211049",
+  "events": [
+    {
+      "server": "13.203.203.4",
+      "status": "in_progress",
+      "step": "start",
+      "details": "patch run started for 13.203.203.4",
+      "time": "2026-11-15T15:40:50Z"
+    }
+  ]
+}

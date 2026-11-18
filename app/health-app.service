@@ -1,0 +1,19 @@
+[Unit]
+Description=Health-gated patching lab demo application
+After=network.target
+Documentation=https://example.com/health-gated-patching-lab
+
+[Service]
+Type=simple
+User=healthapp
+Group=healthapp
+Environment=HEALTH_APP_PORT=8080
+ExecStart=/usr/bin/python3 /opt/health-app/health_app.py
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/etc/health-app
+
+[Install]
+WantedBy=multi-user.target

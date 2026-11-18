@@ -1,0 +1,13 @@
+---
+# Append an event to the report file. Caller sets:
+#   report_status  - in_progress | patched | failed
+#   report_step    - step name (optional)
+#   report_details - free-form details (optional)
+- name: Append event to patch report
+  ansible.builtin.command:
+    cmd: python3 {{ role_path }}/files/report_tool.py append {{ patch_report_file }}
+  delegate_to: localhost
+  become: false
+  environment:
+    PATCH_EVENT: "{{ {'server': inventory_hostname, 'status': report_status, 'step': report_step | default(''), 'details': report_details | default(''), 'time': lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ')} | to_json }}"
+  changed_when: true

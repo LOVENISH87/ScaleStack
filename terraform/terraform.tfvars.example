@@ -1,0 +1,10 @@
+# Copy to terraform.tfvars (gitignored) and adjust. Never commit real values.
+aws_region    = "us-east-1"
+operator_cidr = "203.0.113.10/32" # Your public IP/32. NEVER 0.0.0.0/0.
+ssh_key_name  = "my-lab-keypair"
+
+# Optional overrides:
+# app_instance_type    = "t3.micro"
+# nagios_instance_type = "t3.micro"
+# app_port             = 8080
+# aws_region           = "us-east-1"

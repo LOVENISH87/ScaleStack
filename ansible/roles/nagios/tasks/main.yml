@@ -1,0 +1,99 @@
+---
+# Install and configure Nagios Core to monitor the ALB and the app servers.
+- name: Require the nagiosadmin password (never stored in the repo)
+  ansible.builtin.assert:
+    that:
+      - nagios_admin_password | default('') | length >= 8
+    fail_msg: >-
+      Pass -e nagios_admin_password='<at least 8 chars>'. The password is used
+      only on the Nagios server and is not written to the repository.
+    success_msg: "nagiosadmin password provided."
+
+- name: Require the ALB DNS name
+  ansible.builtin.assert:
+    that:
+      - alb_dns_name | default('') | length > 0
+      - alb_dns_name is match('^[a-z0-9.-]+(:[0-9]+)?$') or alb_dns_name is match('^https?://')
+    fail_msg: "alb_dns_name is empty or invalid; check terraform output alb_dns_name."
+
+- name: Install Nagios Core and monitoring plugins
+  ansible.builtin.apt:
+    name:
+      - nagios4
+      - monitoring-plugins-basic
+      - apache2
+      - apache2-utils
+      - bsd-mailx
+    state: present
+    update_cache: true
+
+- name: Detect whether a 24x7 timeperiod is already defined
+  ansible.builtin.shell: >-
+    grep -rE '^[[:space:]]*timeperiod_name[[:space:]]+24x7' /etc/nagios4 --include='*.cfg' | wc -l
+  register: tp_247_count
+  changed_when: false
+
+- name: Create nagiosadmin digest user for cmd.cgi (Ubuntu nagios4 uses Digest auth)
+  ansible.builtin.shell:
+    cmd: >-
+      python3 -c 'import hashlib; u, p = "nagiosadmin", "{{ nagios_admin_password }}";
+      print(f"{u}:Nagios4:" + hashlib.md5(f"{u}:Nagios4:{p}".encode()).hexdigest())'
+      > /etc/nagios4/htdigest.users
+  no_log: true
+  changed_when: true
+
+- name: Protect the digest file
+  ansible.builtin.file:
+    path: /etc/nagios4/htdigest.users
+    owner: root
+    group: www-data
+    mode: "0640"
+
+- name: Deploy lab Nagios object configuration
+  ansible.builtin.template:
+    src: lab.cfg.j2
+    dest: /etc/nagios4/conf.d/health-gated-patching.cfg
+    owner: root
+    group: nagios
+    mode: "0644"
+
+- name: Remove the distro-default Swap Usage check (t3.micro has no swap; always CRITICAL)
+  ansible.builtin.shell: |
+    python3 - <<'PYEOF'
+    import re
+    path = '/etc/nagios4/objects/localhost.cfg'
+    s = open(path).read()
+    pattern = re.compile(r'(define service \{[^}]*service_description\s+Swap Usage[^}]*\}\n?)', re.S)
+    new, n = pattern.subn('', s)
+    open(path, 'w').write(new)
+    print('removed' if n else 'already absent')
+    PYEOF
+  args:
+    removes: /etc/nagios4/objects/localhost.cfg
+  register: swap_cfg
+  changed_when: "'removed' in swap_cfg.stdout"
+
+- name: Enable Apache CGI module (required for nagios4 CGIs to execute)
+  ansible.builtin.command:
+    cmd: a2enmod cgid
+  register: a2enmod_cgid
+  changed_when: "'Enabling module' in a2enmod_cgid.stdout"
+
+- name: Verify Nagios configuration
+  ansible.builtin.command:
+    cmd: nagios4 -v /etc/nagios4/nagios.cfg
+  register: nagios_verify
+  changed_when: false
+
+- name: Show Nagios verification output
+  ansible.builtin.debug:
+    var: nagios_verify.stdout_lines
+
+- name: Restart Nagios and Apache
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: restarted
+    enabled: true
+  loop:
+    - nagios4
+    - apache2
