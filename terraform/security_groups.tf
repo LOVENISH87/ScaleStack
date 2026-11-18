@@ -81,11 +81,11 @@ resource "aws_security_group" "nagios" {
   vpc_id      = aws_vpc.lab.id
 
   ingress {
-    description = "Nagios web UI from the operator CIDR only"
+    description = "Nagios web UI from anywhere (authenticated with nagiosadmin password)"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = [var.operator_cidr]
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   ingress {
