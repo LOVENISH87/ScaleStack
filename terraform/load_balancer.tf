@@ -57,11 +57,13 @@ resource "aws_lb_target_group" "nagios" {
   target_type = "instance"
 
   health_check {
-    enabled  = true
-    path     = "/nagios4/"
-    matcher  = "200,301,302,401"
-    interval = 15
-    timeout  = 5
+    enabled             = true
+    path                = "/"
+    matcher             = "200,301,302,401"
+    interval            = 10
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
   }
 
   tags = {
