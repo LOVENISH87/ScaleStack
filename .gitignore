@@ -1,0 +1,43 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+crash.log
+crash.*.log
+*.tfplan
+*.tfvars
+!terraform.tfvars.example
+
+# Ansible
+*.retry
+.ansible/
+ansible/inventory/*.cache
+patch-report-*.json
+
+# Secrets / keys
+*.pem
+*.key
+*.ppk
+id_rsa*
+id_ed25519*
+.aws/
+secrets*
+*.secret
+
+# OS / editor
+.DS_Store
+*.swp
+*~
+patch-report-*.json.bak-*
+
+# Python & Build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.zip
+.pytest_cache/
+
+# Local Agent configs
+.agents/
+skills-lock.json
