@@ -1,0 +1,10 @@
+---
+# Initialize a fresh report file for this run. Run once per playbook execution.
+# patch_report_file must be set by the calling playbook.
+- name: Initialize patch report
+  ansible.builtin.command:
+    cmd: python3 {{ role_path }}/files/report_tool.py init {{ patch_report_file }} {{ lookup('pipe', 'date +%Y%m%dT%H%M%S') }}
+  delegate_to: localhost
+  become: false
+  run_once: true
+  changed_when: true

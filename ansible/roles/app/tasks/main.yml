@@ -1,0 +1,20 @@
+---
+# Deploy the demo application code. Service/package management is Puppet's job.
+- name: Ensure application directory exists
+  ansible.builtin.file:
+    path: /opt/health-app
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy health_app.py
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../app/health_app.py"
+    dest: /opt/health-app/health_app.py
+    owner: root
+    group: root
+    mode: "0644"
+  # The health-app service is managed by Puppet (enabled + running).
+  # This playbook runs before puppet_baseline, and Puppet restarts the
+  # service when its unit file changes.

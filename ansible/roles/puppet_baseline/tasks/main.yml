@@ -1,0 +1,51 @@
+---
+# Install Puppet and apply the application baseline manifest.
+# Puppet owns: required packages, the systemd unit, enabling and running
+# the service. Ansible owns this orchestration and OS patching.
+- name: Install puppet-agent package
+  ansible.builtin.apt:
+    name: puppet-agent
+    state: present
+    update_cache: true
+
+- name: Ensure puppet manifest directory exists
+  ansible.builtin.file:
+    path: /etc/puppet/manifests
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Copy the application baseline manifest
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../puppet/manifests/app.pp"
+    dest: /etc/puppet/manifests/app.pp
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Apply the puppet baseline (detailed exit codes)
+  ansible.builtin.command:
+    cmd: puppet apply --detailed-exitcodes /etc/puppet/manifests/app.pp
+  register: puppet_apply
+  # 0 = no changes, 2 = changes applied successfully
+  changed_when: puppet_apply.rc == 2
+  failed_when: puppet_apply.rc not in [0, 2]
+
+- name: Show puppet apply output
+  ansible.builtin.debug:
+    var: puppet_apply.stdout_lines
+
+- name: Restart health-app so the deployed code is loaded
+  ansible.builtin.systemd:
+    name: health-app
+    state: restarted
+
+- name: Wait for health-app to answer locally
+  ansible.builtin.command:
+    cmd: curl -fsS -o /dev/null -w "%{http_code}" http://127.0.0.1:{{ app_port }}{{ app_health_path }}
+  register: local_health
+  until: local_health.stdout | trim == "200"
+  retries: 12
+  delay: 5
+  changed_when: false

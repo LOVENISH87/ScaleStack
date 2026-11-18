@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800" style="background:#0d1117">
+  <style>
+    .p {fill:#8b949e;font-family:Consolas;font-size:11;}
+    .t {fill:#e6edf3;font-family:Consolas;font-size:13;font-weight:bold;}
+    .c {fill:#00d1ff;font-family:Consolas;font-size:10;}
+  </style>
+  <!-- VPC -->
+  <rect x="20" y="20" width="220" height="340" rx="6" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+  <text x="30" y="50" class="t">VPC & NETWORK</text>
+  <text x="30" y="80" class="p">CIDR: 10.20.0.0/16</text>
+  <text x="30" y="100" class="p">2 AZs: us-east-1a, us-east-1b</text>
+  <text x="30" y="120" class="p">Public subnets: 10.0.1.0/24, 10.0.2.0/24</text>
+  <text x="30" y="140" class="p">Private subnets: 10.0.11.0/24, 10.0.12.0/24</text>
+  <text x="30" y="160" class="p">ALB in public subnets</text>
+  <text x="30" y="180" class="p">NAT gateway for outbound</text>
+
+  <!-- APP LAYER -->
+  <rect x="260" y="20" width="180" height="340" rx="6" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+  <text x="270" y="50" class="t">APP LAYER (ASG)</text>
+  <text x="270" y="80" class="p">2+ instances, one per AZ</text>
+  <text x="270" y="100" class="p">health-app :8080</text>
+  <text x="270" y="120" class="p">SGs: ALB + app traffic</text>
+
+  <!-- DATABASE -->
+  <rect x="480" y="20" width="180" height="260" rx="6" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+  <text x="490" y="50" class="t">DATA LAYER</text>
+  <text x="490" y="80" class="p">Aurora PostgreSQL</text>
+  <text x="490" y="100" class="p">Endpoint + reader endpoint</text>
+  <text x="490" y="120" class="p">SG: DB only</text>
+  <text x="490" y="140" class="p">Subnets: private</text>
+
+  <!-- CACHE -->
+  <rect x="700" y="20" width="180" height="220" rx="6" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+  <text x="710" y="50" class="t">CACHE LAYER</text>
+  <text x="710" y="80" class="p">ElastiCache Redis</text>
+  <text x="710" y="100" class="p">Port 6379</text>
+  <text x="710" y="120" class="p">Subnets: private</text>
+
+  <!-- FRONT -->
+  <rect x="940" y="20" width="240" height="260" rx="6" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+  <text x="950" y="50" class="t">FRONT ENTRY</text>
+  <text x="950" y="80" class="c">CloudFront</text>
+  <text x="950" y="100" class="p">ALB app/:80</text>
+  <text x="950" y="120" class="p">Target group :8080</text>
+  <text x="950" y="140" class="p">Health: /health → 200</text>
+
+  <!-- Arrows between tiers -->
+  <line x1="240" y1="190" x2="260" y2="190" stroke="#6e7681" stroke-width="1" stroke-dasharray="4 2"/>
+  <line x1="460" y1="190" x2="480" y2="190" stroke="#6e7681" stroke-width="1" stroke-dasharray="4 2"/>
+  <line x1="680" y1="190" x2="700" y2="190" stroke="#6e7681" stroke-width="1" stroke-dasharray="4 2"/>
+
+  <!-- Server strip at bottom -->
+  <line x1="20" y1="730" x2="1180" y2="730" stroke="#6e7681" stroke-width="1"/>
+  <text x="30" y="715" class="p">APP-1: healthy   APP-2: healthy   APP-3: pending scale</text>
+</svg

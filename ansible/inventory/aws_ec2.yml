@@ -1,0 +1,38 @@
+# Dynamic inventory for the Terraform-managed lab ONLY.
+# Instances are selected strictly by the Project tag set by Terraform.
+# Run from the ansible/ directory. Requires AWS credentials in the
+# environment (same credentials used for Terraform / the AWS CLI).
+plugin: amazon.aws.aws_ec2
+
+# AWS region is taken from the environment (AWS_REGION / AWS_DEFAULT_REGION),
+# falling back to us-east-1. Override by exporting AWS_REGION before running.
+regions:
+  - "{{ lookup('env', 'AWS_REGION') | default(lookup('env', 'AWS_DEFAULT_REGION'), true) | default('us-east-1', true) }}"
+
+# NOTE: the `filters` values are NOT processed through Jinja/Lookup templating
+# by the aws_ec2 inventory plugin — they are compared literally against EC2 tag
+# values. Keep them as plain strings (must match the Terraform Project tag).
+filters:
+  tag:Project:
+    - "health-gated-patching"
+  tag:Lab:
+    - "true"
+
+hostnames:
+  - ip-address
+
+compose:
+  ansible_host: public_ip_address
+  private_ip: private_ip_address
+
+keyed_groups:
+  # NOTE: amazon.aws >= 6 exposes instance tags as the `tags` dict hostvar
+  # (there is no `ec2_tags` anymore). Keying off ec2_tags yields empty groups.
+  - key: tags.Role
+    prefix: role
+
+groups:
+  app_servers: tags.Role == 'app'
+  nagios: tags.Role == 'nagios'
+
+strict_permissions: False

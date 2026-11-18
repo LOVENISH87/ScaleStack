@@ -1,0 +1,22 @@
+---
+# Bootstrap the lab application servers:
+#   1. deploy the demo app code (Ansible)
+#   2. install Puppet and apply the baseline (service, packages, unit)
+#   3. verify the app answers locally on each server
+#
+# Run from the ansible/ directory:
+#   ansible-playbook playbooks/bootstrap.yml
+
+- name: Bootstrap lab application servers
+  hosts: app_servers
+  gather_facts: true
+  serial: 1   # deterministic order app-1 -> app-3; keeps bootstrap calm on small instances
+
+  roles:
+    - role: app
+    - role: puppet_baseline
+
+  post_tasks:
+    - name: Report bootstrap status
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: health-app deployed and verified healthy via 127.0.0.1:{{ app_port }}{{ app_health_path }}"
