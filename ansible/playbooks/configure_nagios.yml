@@ -19,7 +19,14 @@
   vars:
     terraform_dir: "{{ playbook_dir }}/../../terraform"
     alb_dns_name: "{{ lookup('pipe', 'terraform -chdir=' + terraform_dir + ' output -raw alb_dns_name') }}"
-    app_private_ips: "{{ lookup('pipe', 'terraform -chdir=' + terraform_dir + ' output -json app_private_ips') | from_json }}"
+    app_private_ips: >-
+      {{
+        (groups['app_servers'] | default([]) | map('extract', hostvars, 'private_ip') | list)
+        if (groups['app_servers'] is defined and (groups['app_servers'] | length > 0))
+        else (
+          lookup('pipe', 'terraform -chdir=' + terraform_dir + ' output -json app_private_ips 2>/dev/null || echo \"[]\"') | from_json
+        )
+      }}
 
   roles:
     - role: nagios

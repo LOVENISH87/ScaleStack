@@ -8,7 +8,7 @@ resource "aws_instance" "nagios" {
   associate_public_ip_address = true
 
   tags = {
-    Name    = "ScaleStack-Nagios-Monitoring"
+    Name    = "${var.project_name}-nagios"
     Role    = "nagios"
     Project = var.project_name
   }
