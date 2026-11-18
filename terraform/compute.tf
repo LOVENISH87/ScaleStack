@@ -31,8 +31,9 @@ new = re.sub(r'define service \{[^}]*Swap Usage[^}]*\}\n?', '', s)
 open(path, 'w').write(new)
 " 2>/dev/null || true
 
-    # Enable CGI execution in Apache
+    # Enable CGI execution in Apache & Nagios4 configuration
     a2enmod cgid
+    a2enconf nagios4-cgi || true
 
     # Restart and enable services
     systemctl restart nagios4 apache2
