@@ -6,6 +6,7 @@ resource "aws_instance" "nagios" {
   subnet_id                   = aws_subnet.public[0].id
   vpc_security_group_ids      = [aws_security_group.nagios.id]
   associate_public_ip_address = true
+  user_data_replace_on_change = true
 
   # Auto-install Nagios Core 4 + Apache on boot
   user_data = base64encode(<<-EOF
