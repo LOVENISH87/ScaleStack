@@ -60,7 +60,7 @@ resource "aws_iam_instance_profile" "app" {
 
 # Launch Template for Auto Scaling Group
 resource "aws_launch_template" "app" {
-  name_prefix   = "${var.project_name}-lt-"
+  name_prefix   = "ScaleStack-lt-"
   image_id      = data.aws_ami.ubuntu_2404.id
   instance_type = var.app_instance_type
   key_name      = var.ssh_key_name
@@ -85,10 +85,22 @@ resource "aws_launch_template" "app" {
     }
   }
 
+  # Dynamic hostname injection so each node identifies its exact AZ
+  user_data = base64encode(<<-EOF
+    #!/bin/bash
+    TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" 2>/dev/null || true)
+    if [ -n "$TOKEN" ]; then
+      AZ=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/placement/availability-zone 2>/dev/null || echo "unknown")
+      IID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id 2>/dev/null || echo "node")
+      hostnamectl set-hostname "ScaleStack-$${AZ}-$${IID: -6}"
+    fi
+  EOF
+  )
+
   tag_specifications {
     resource_type = "instance"
     tags = {
-      Name    = "${var.project_name}-asg-app"
+      Name    = "ScaleStack-Web-Worker"
       Role    = "app"
       Project = var.project_name
     }
@@ -101,7 +113,7 @@ resource "aws_launch_template" "app" {
 
 # Requirement #1: Auto Scaling Group (ASG) behind ALB
 resource "aws_autoscaling_group" "app" {
-  name_prefix         = "${var.project_name}-asg-"
+  name_prefix         = "ScaleStack-asg-"
   min_size            = 2
   max_size            = 4
   desired_capacity    = 2
@@ -123,6 +135,18 @@ resource "aws_autoscaling_group" "app" {
     }
   }
 
+  tag {
+    key                 = "Name"
+    value               = "ScaleStack-Web-Worker"
+    propagate_at_launch = true
+  }
+
+  tag {
+    key                 = "Project"
+    value               = var.project_name
+    propagate_at_launch = true
+  }
+
   lifecycle {
     create_before_destroy = true
     ignore_changes        = [desired_capacity]
@@ -131,7 +155,7 @@ resource "aws_autoscaling_group" "app" {
 
 # Requirement #1: Target Tracking Policy (Scale Out when CPU > 60%)
 resource "aws_autoscaling_policy" "cpu_target_tracking" {
-  name                   = "${var.project_name}-cpu-scaling"
+  name                   = "ScaleStack-cpu-scaling"
   autoscaling_group_name = aws_autoscaling_group.app.name
   policy_type            = "TargetTrackingScaling"
 
