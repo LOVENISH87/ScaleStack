@@ -93,54 +93,23 @@ resource "aws_launch_template" "app" {
     }
   }
 
-  # Bootstrap instance: self-naming, prerequisites, and deploy application service
+  # Bootstrap instance: launch application immediately, then configure self-naming
   user_data = base64encode(<<-EOF
     #!/bin/bash
-    set -euo pipefail
+    set -uo pipefail
 
-    # Install prerequisites & AWS CLI for self-naming
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update -y
-    apt-get install -y python3 curl awscli
-
-    TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" 2>/dev/null || true)
-    INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id 2>/dev/null || echo "")
-    REGION=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || echo "ap-south-1")
-
-    # Determine unique sequential name: Server-One, Server-Two, Server-Three, Server-Four
-    ASSIGNED_NAME="Server-One"
-    if [ -n "$INSTANCE_ID" ] && [ -n "$REGION" ]; then
-      EXISTING_NAMES=$(aws ec2 describe-instances --region "$REGION" \
-        --filters "Name=tag:Role,Values=app" "Name=instance-state-name,Values=running,pending" \
-        --query "Reservations[].Instances[].Tags[?Key=='Name'].Value[]" --output text 2>/dev/null || true)
-
-      for NUM in One Two Three Four Five Six; do
-        if ! echo "$EXISTING_NAMES" | grep -qw "Server-$NUM"; then
-          ASSIGNED_NAME="Server-$NUM"
-          break
-        fi
-      done
-
-      # Tag itself directly in AWS EC2 Console so the Name column shows Server-One, Server-Two, etc.
-      aws ec2 create-tags --region "$REGION" --resources "$INSTANCE_ID" --tags "Key=Name,Value=$ASSIGNED_NAME" 2>/dev/null || true
-    fi
-
-    hostnamectl set-hostname "$ASSIGNED_NAME"
-
-    # Configure application user and directories
+    # 1. Immediately launch the application so ALB health checks pass in < 5 seconds
     id -u healthapp &>/dev/null || useradd -r -s /usr/sbin/nologin -d /nonexistent healthapp
     mkdir -p /opt/health-app /etc/health-app
-    chown healthapp:healthapp /etc/health-app
+    chown -R healthapp:healthapp /etc/health-app
 
-    # Deploy application code directly so new workers serve the app immediately
     echo "${filebase64("${path.module}/../app/health_app.py")}" | base64 -d > /opt/health-app/health_app.py
     chmod 0755 /opt/health-app/health_app.py
     chown root:root /opt/health-app/health_app.py
 
-    # Deploy systemd unit
     cat <<'SVCEOF' > /etc/systemd/system/health-app.service
     [Unit]
-    Description=Health-gated patching lab demo application
+    Description=ScaleStack Health Application
     After=network.target
 
     [Service]
@@ -159,9 +128,36 @@ resource "aws_launch_template" "app" {
     WantedBy=multi-user.target
     SVCEOF
 
-    # Start and enable application service
     systemctl daemon-reload
     systemctl enable --now health-app
+
+    # 2. Configure hostname and AWS Console tags
+    TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" 2>/dev/null || true)
+    INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id 2>/dev/null || echo "")
+    REGION=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || echo "ap-south-1")
+
+    # Install awscli for self-naming in the background
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -y >/dev/null 2>&1 || true
+    apt-get install -y awscli curl >/dev/null 2>&1 || true
+
+    ASSIGNED_NAME="Server-One"
+    if [ -n "$INSTANCE_ID" ] && [ -n "$REGION" ] && command -v aws &>/dev/null; then
+      EXISTING_NAMES=$(aws ec2 describe-instances --region "$REGION" \
+        --filters "Name=tag:Role,Values=app" "Name=instance-state-name,Values=running,pending" \
+        --query "Reservations[].Instances[].Tags[?Key=='Name'].Value[]" --output text 2>/dev/null || true)
+
+      for NUM in One Two Three Four Five Six; do
+        if ! echo "$EXISTING_NAMES" | grep -qw "Server-$NUM"; then
+          ASSIGNED_NAME="Server-$NUM"
+          break
+        fi
+      done
+
+      aws ec2 create-tags --region "$REGION" --resources "$INSTANCE_ID" --tags "Key=Name,Value=$ASSIGNED_NAME" 2>/dev/null || true
+    fi
+
+    hostnamectl set-hostname "$ASSIGNED_NAME"
   EOF
   )
 
