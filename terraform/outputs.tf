@@ -18,6 +18,21 @@ output "asg_name" {
   value       = aws_autoscaling_group.app.name
 }
 
+output "app_instance_ids" {
+  description = "Instance IDs of the application worker servers."
+  value       = data.aws_instances.app_workers.ids
+}
+
+output "app_public_ips" {
+  description = "Public IPs of the application worker servers."
+  value       = data.aws_instances.app_workers.public_ips
+}
+
+output "app_private_ips" {
+  description = "Private IPs of the application worker servers."
+  value       = data.aws_instances.app_workers.private_ips
+}
+
 output "nagios_public_ip" {
   description = "Public IP of the Nagios Core server (web UI and SSH from operator CIDR only)."
   value       = aws_instance.nagios.public_ip

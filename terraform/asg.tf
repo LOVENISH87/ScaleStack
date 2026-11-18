@@ -60,7 +60,7 @@ resource "aws_iam_instance_profile" "app" {
 
 # Launch Template for Auto Scaling Group
 resource "aws_launch_template" "app" {
-  name_prefix   = "ScaleStack-lt-"
+  name_prefix   = "${var.project_name}-lt-"
   image_id      = data.aws_ami.ubuntu_2404.id
   instance_type = var.app_instance_type
   key_name      = var.ssh_key_name
@@ -85,24 +85,77 @@ resource "aws_launch_template" "app" {
     }
   }
 
-  # Dynamic hostname injection so each node identifies its exact AZ
+  # Bootstrap instance: hostname, prerequisites, and deploy application service
   user_data = base64encode(<<-EOF
     #!/bin/bash
+    set -euo pipefail
+
     TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" 2>/dev/null || true)
     if [ -n "$TOKEN" ]; then
       AZ=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/placement/availability-zone 2>/dev/null || echo "unknown")
       IID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id 2>/dev/null || echo "node")
-      hostnamectl set-hostname "ScaleStack-$${AZ}-$${IID: -6}"
+      hostnamectl set-hostname "${var.project_name}-$${AZ}-$${IID: -6}"
     fi
+
+    # Install prerequisites
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -y
+    apt-get install -y python3 curl
+
+    # Configure application user and directories
+    id -u healthapp &>/dev/null || useradd -r -s /usr/sbin/nologin -d /nonexistent healthapp
+    mkdir -p /opt/health-app /etc/health-app
+    chown healthapp:healthapp /etc/health-app
+
+    # Deploy application code directly so new workers serve the app immediately
+    echo "${filebase64("${path.module}/../app/health_app.py")}" | base64 -d > /opt/health-app/health_app.py
+    chmod 0755 /opt/health-app/health_app.py
+    chown root:root /opt/health-app/health_app.py
+
+    # Deploy systemd unit
+    cat <<'SVCEOF' > /etc/systemd/system/health-app.service
+    [Unit]
+    Description=Health-gated patching lab demo application
+    After=network.target
+
+    [Service]
+    Type=simple
+    User=healthapp
+    Group=healthapp
+    Environment=HEALTH_APP_PORT=8080
+    ExecStart=/usr/bin/python3 /opt/health-app/health_app.py
+    Restart=always
+    RestartSec=2
+    NoNewPrivileges=true
+    ProtectSystem=strict
+    ReadWritePaths=/etc/health-app
+
+    [Install]
+    WantedBy=multi-user.target
+    SVCEOF
+
+    # Start and enable application service
+    systemctl daemon-reload
+    systemctl enable --now health-app
   EOF
   )
 
   tag_specifications {
     resource_type = "instance"
     tags = {
-      Name    = "ScaleStack-Web-Worker"
+      Name    = "${var.project_name}-worker"
       Role    = "app"
       Project = var.project_name
+      Lab     = "true"
+    }
+  }
+
+  tag_specifications {
+    resource_type = "volume"
+    tags = {
+      Name    = "${var.project_name}-worker-volume"
+      Project = var.project_name
+      Lab     = "true"
     }
   }
 
@@ -113,7 +166,7 @@ resource "aws_launch_template" "app" {
 
 # Requirement #1: Auto Scaling Group (ASG) behind ALB
 resource "aws_autoscaling_group" "app" {
-  name_prefix         = "ScaleStack-asg-"
+  name_prefix         = "${var.project_name}-asg-"
   min_size            = 2
   max_size            = 4
   desired_capacity    = 2
@@ -137,13 +190,25 @@ resource "aws_autoscaling_group" "app" {
 
   tag {
     key                 = "Name"
-    value               = "ScaleStack-Web-Worker"
+    value               = "${var.project_name}-worker"
+    propagate_at_launch = true
+  }
+
+  tag {
+    key                 = "Role"
+    value               = "app"
     propagate_at_launch = true
   }
 
   tag {
     key                 = "Project"
     value               = var.project_name
+    propagate_at_launch = true
+  }
+
+  tag {
+    key                 = "Lab"
+    value               = "true"
     propagate_at_launch = true
   }
 
@@ -155,7 +220,7 @@ resource "aws_autoscaling_group" "app" {
 
 # Requirement #1: Target Tracking Policy (Scale Out when CPU > 60%)
 resource "aws_autoscaling_policy" "cpu_target_tracking" {
-  name                   = "ScaleStack-cpu-scaling"
+  name                   = "${var.project_name}-cpu-scaling"
   autoscaling_group_name = aws_autoscaling_group.app.name
   policy_type            = "TargetTrackingScaling"
 
@@ -166,4 +231,16 @@ resource "aws_autoscaling_policy" "cpu_target_tracking" {
     target_value     = 60.0
     disable_scale_in = false
   }
+}
+
+# Discover active worker instances launched by ASG for Terraform outputs and Ansible
+data "aws_instances" "app_workers" {
+  instance_tags = {
+    Role    = "app"
+    Project = var.project_name
+  }
+
+  instance_state_names = ["running", "pending"]
+
+  depends_on = [aws_autoscaling_group.app]
 }

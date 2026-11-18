@@ -1,18 +1,18 @@
 resource "aws_lb" "app" {
-  name               = "ScaleStack-alb"
+  name               = "${var.project_name}-alb"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
   subnets            = aws_subnet.public[*].id
 
   tags = {
-    Name    = "ScaleStack-alb"
+    Name    = "${var.project_name}-alb"
     Project = var.project_name
   }
 }
 
 resource "aws_lb_target_group" "app" {
-  name        = "ScaleStack-tg"
+  name        = "${var.project_name}-tg"
   port        = var.app_port
   protocol    = "HTTP"
   vpc_id      = aws_vpc.lab.id
@@ -32,7 +32,7 @@ resource "aws_lb_target_group" "app" {
   deregistration_delay = "15"
 
   tags = {
-    Name    = "ScaleStack-tg"
+    Name    = "${var.project_name}-tg"
     Project = var.project_name
   }
 }
