@@ -8,9 +8,10 @@ resource "aws_instance" "nagios" {
   associate_public_ip_address = true
 
   tags = {
-    Name    = "${var.project_name}-nagios"
+    Name    = "Nagios-Server"
     Role    = "nagios"
     Project = var.project_name
+    Lab     = "true"
   }
 
   root_block_device {

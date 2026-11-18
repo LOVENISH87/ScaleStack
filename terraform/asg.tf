@@ -43,6 +43,14 @@ resource "aws_iam_policy" "s3_ecr_access" {
           "ecr:BatchGetImage"
         ]
         Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ec2:CreateTags",
+          "ec2:DescribeInstances"
+        ]
+        Resource = "*"
       }
     ]
   })
@@ -85,22 +93,39 @@ resource "aws_launch_template" "app" {
     }
   }
 
-  # Bootstrap instance: hostname, prerequisites, and deploy application service
+  # Bootstrap instance: self-naming, prerequisites, and deploy application service
   user_data = base64encode(<<-EOF
     #!/bin/bash
     set -euo pipefail
 
-    TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" 2>/dev/null || true)
-    if [ -n "$TOKEN" ]; then
-      AZ=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/placement/availability-zone 2>/dev/null || echo "unknown")
-      IID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id 2>/dev/null || echo "node")
-      hostnamectl set-hostname "${var.project_name}-$${AZ}-$${IID: -6}"
-    fi
-
-    # Install prerequisites
+    # Install prerequisites & AWS CLI for self-naming
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -y
-    apt-get install -y python3 curl
+    apt-get install -y python3 curl awscli
+
+    TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" 2>/dev/null || true)
+    INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id 2>/dev/null || echo "")
+    REGION=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || echo "ap-south-1")
+
+    # Determine unique sequential name: Server-One, Server-Two, Server-Three, Server-Four
+    ASSIGNED_NAME="Server-One"
+    if [ -n "$INSTANCE_ID" ] && [ -n "$REGION" ]; then
+      EXISTING_NAMES=$(aws ec2 describe-instances --region "$REGION" \
+        --filters "Name=tag:Role,Values=app" "Name=instance-state-name,Values=running,pending" \
+        --query "Reservations[].Instances[].Tags[?Key=='Name'].Value[]" --output text 2>/dev/null || true)
+
+      for NUM in One Two Three Four Five Six; do
+        if ! echo "$EXISTING_NAMES" | grep -qw "Server-$NUM"; then
+          ASSIGNED_NAME="Server-$NUM"
+          break
+        fi
+      done
+
+      # Tag itself directly in AWS EC2 Console so the Name column shows Server-One, Server-Two, etc.
+      aws ec2 create-tags --region "$REGION" --resources "$INSTANCE_ID" --tags "Key=Name,Value=$ASSIGNED_NAME" 2>/dev/null || true
+    fi
+
+    hostnamectl set-hostname "$ASSIGNED_NAME"
 
     # Configure application user and directories
     id -u healthapp &>/dev/null || useradd -r -s /usr/sbin/nologin -d /nonexistent healthapp
@@ -143,7 +168,7 @@ resource "aws_launch_template" "app" {
   tag_specifications {
     resource_type = "instance"
     tags = {
-      Name    = "${var.project_name}-worker"
+      Name    = "Server-Worker"
       Role    = "app"
       Project = var.project_name
       Lab     = "true"
@@ -153,7 +178,7 @@ resource "aws_launch_template" "app" {
   tag_specifications {
     resource_type = "volume"
     tags = {
-      Name    = "${var.project_name}-worker-volume"
+      Name    = "Server-Worker-Volume"
       Project = var.project_name
       Lab     = "true"
     }
@@ -164,7 +189,7 @@ resource "aws_launch_template" "app" {
   }
 }
 
-# Requirement #1: Auto Scaling Group (ASG) behind ALB
+# Requirement #1: Auto Scaling Group (ASG) behind ALB (Starts with 2 instances, scales up to 4)
 resource "aws_autoscaling_group" "app" {
   name_prefix         = "${var.project_name}-asg-"
   min_size            = 2
@@ -190,7 +215,7 @@ resource "aws_autoscaling_group" "app" {
 
   tag {
     key                 = "Name"
-    value               = "${var.project_name}-worker"
+    value               = "Server-Worker"
     propagate_at_launch = true
   }
 
