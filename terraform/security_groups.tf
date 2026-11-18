@@ -20,6 +20,14 @@ resource "aws_security_group" "alb" {
     cidr_blocks = [var.vpc_cidr]
   }
 
+  egress {
+    description = "To Nagios on port 80"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+
   tags = { Name = "${var.project_name}-alb-sg" }
 }
 
@@ -79,6 +87,14 @@ resource "aws_security_group" "nagios" {
   name        = "${var.project_name}-nagios-sg"
   description = "Nagios Core server. Web UI and SSH from operator CIDR only."
   vpc_id      = aws_vpc.lab.id
+
+  ingress {
+    description     = "Nagios web UI from ALB"
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id]
+  }
 
   ingress {
     description = "Nagios web UI from anywhere (authenticated with nagiosadmin password)"

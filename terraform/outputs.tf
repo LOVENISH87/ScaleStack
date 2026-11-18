@@ -38,6 +38,11 @@ output "nagios_public_ip" {
   value       = aws_instance.nagios.public_ip
 }
 
+output "nagios_url" {
+  description = "Direct ALB URL for Nagios Core (bypasses college firewalls)."
+  value       = "http://${aws_lb.app.dns_name}/nagios4/"
+}
+
 output "nagios_private_ip" {
   description = "Private IP of the Nagios Core server."
   value       = aws_instance.nagios.private_ip
