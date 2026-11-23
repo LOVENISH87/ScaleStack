@@ -21,13 +21,22 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+# Bundle the handler at plan time from the source file. Committing the .zip
+# meant a fresh checkout (CI) had nothing to hash, and the binary silently
+# drifted from processor.py whenever the source changed.
+data "archive_file" "s3_processor" {
+  type        = "zip"
+  source_file = "${path.module}/../lambda/processor.py"
+  output_path = "${path.module}/../lambda/processor.zip"
+}
+
 # Lambda Function
 resource "aws_lambda_function" "s3_processor" {
-  filename         = "${path.module}/../lambda/processor.zip"
+  filename         = data.archive_file.s3_processor.output_path
   function_name    = "${var.project_name}-s3-log-processor"
   role             = aws_iam_role.lambda.arn
   handler          = "processor.lambda_handler"
-  source_code_hash = filebase64sha256("${path.module}/../lambda/processor.zip")
+  source_code_hash = data.archive_file.s3_processor.output_base64sha256
   runtime          = "python3.12"
   timeout          = 30
 
