@@ -1,13 +1,17 @@
 ---
 # Shared variables for all lab hosts.
-# App server specific: see app_servers.yml; Nagios: see nagios.yml.
+# EKS worker node specific: see eks_nodes.yml.
 
 # Application / health-check settings. Override with -e if needed.
 app_port: 8080
 app_health_path: /health
 
-# AWS region used for ALB target group calls from the controller.
-aws_region: "{{ lookup('env', 'AWS_REGION') | default(lookup('env', 'AWS_DEFAULT_REGION'), true) | default('us-east-1', true) }}"
+# Kubernetes namespace / workload the node patch playbook checks after uncordon.
+app_namespace: scalestack
+app_deployment: scalestack-web
+
+# AWS region used by the dynamic inventory.
+aws_region: "{{ lookup('env', 'AWS_REGION') | default(lookup('env', 'AWS_DEFAULT_REGION'), true) | default('ap-south-1', true) }}"
 
 # Project tag, must match the Terraform project_name.
-project_name: "{{ lookup('env', 'PROJECT_NAME') | default('health-gated-patching', true) }}"
+project_name: "{{ lookup('env', 'PROJECT_NAME') | default('scalestack', true) }}"

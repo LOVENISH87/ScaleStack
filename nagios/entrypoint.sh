@@ -16,7 +16,8 @@ envsubst '${ALB_DNS}' \
   > /etc/nagios4/conf.d/scalestack.cfg
 
 echo "==> writing the nagiosadmin digest login"
-printf '%s\n' "${NAGIOS_ADMIN_PASSWORD}" \
+# htdigest -c asks for the password twice (password + confirmation); feed both.
+printf '%s\n%s\n' "${NAGIOS_ADMIN_PASSWORD}" "${NAGIOS_ADMIN_PASSWORD}" \
   | htdigest -c /etc/nagios4/htdigest.users "Nagios4" nagiosadmin >/dev/null
 chown root:www-data /etc/nagios4/htdigest.users
 chmod 0640 /etc/nagios4/htdigest.users

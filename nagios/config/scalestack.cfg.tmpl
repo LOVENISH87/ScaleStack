@@ -61,7 +61,7 @@ define service {
 
 define service {
     host_name             scalestack-web
-    service_description   Service health (ClusterIP)
+    service_description   Service health ClusterIP
     check_command         lab_check_http_service!80!/health
     max_check_attempts    3
     check_interval        1

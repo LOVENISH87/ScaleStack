@@ -1,8 +1,0 @@
----
-# Application server connection defaults (SSH from your operator CIDR).
-# target_group_arn has NO default: pass it explicitly to patch.yml, e.g.
-#   -e target_group_arn=$(terraform -chdir=../terraform output -raw target_group_arn)
-ansible_user: ubuntu
-ansible_become: true
-ansible_python_interpreter: /usr/bin/python3
-target_group_arn: ""

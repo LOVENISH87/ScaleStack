@@ -14,7 +14,7 @@ regions:
 # values. Keep them as plain strings (must match the Terraform Project tag).
 filters:
   tag:Project:
-    - "health-gated-patching"
+    - "scalestack"
   tag:Lab:
     - "true"
 
@@ -32,7 +32,8 @@ keyed_groups:
     prefix: role
 
 groups:
-  app_servers: tags.Role == 'app'
-  nagios: tags.Role == 'nagios'
+  # Worker nodes of the EKS managed (Spot) node group, tagged by the launch
+  # template in terraform/eks.tf. These are the hosts patch.yml drains.
+  eks_nodes: tags.Role == 'eks-node'
 
 strict_permissions: False

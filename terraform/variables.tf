@@ -84,6 +84,17 @@ variable "app_node_port" {
   default     = 30080
 }
 
+variable "nagios_node_port" {
+  description = "Fixed NodePort the Nagios Service binds; the ALB path rule forwards here."
+  type        = number
+  default     = 30081
+
+  validation {
+    condition     = var.nagios_node_port >= 30000 && var.nagios_node_port <= 32767
+    error_message = "nagios_node_port must be a valid NodePort (30000-32767)."
+  }
+}
+
 variable "app_health_check_path" {
   description = "HTTP path used by the ALB target group health check."
   type        = string

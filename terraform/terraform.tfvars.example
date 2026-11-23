@@ -10,3 +10,4 @@ ssh_key_name  = "my-lab-keypair"
 # node_min_size       = 1
 # node_max_size       = 4
 # app_node_port       = 30080
+# nagios_node_port    = 30081

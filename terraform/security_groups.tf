@@ -21,6 +21,14 @@ resource "aws_security_group" "alb" {
     cidr_blocks = [var.vpc_cidr]
   }
 
+  egress {
+    description = "To worker nodes on the Nagios NodePort"
+    from_port   = var.nagios_node_port
+    to_port     = var.nagios_node_port
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+
   tags = { Name = "${var.project_name}-alb-sg" }
 }
 
@@ -36,6 +44,14 @@ resource "aws_security_group" "eks_nodes" {
     description     = "Application traffic from the ALB only"
     from_port       = var.app_node_port
     to_port         = var.app_node_port
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id]
+  }
+
+  ingress {
+    description     = "Nagios UI from the ALB only"
+    from_port       = var.nagios_node_port
+    to_port         = var.nagios_node_port
     protocol        = "tcp"
     security_groups = [aws_security_group.alb.id]
   }

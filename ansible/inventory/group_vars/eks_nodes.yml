@@ -1,0 +1,13 @@
+---
+# EKS worker node connection defaults.
+#
+# The node group uses the EKS-optimized AL2023 AMI, whose login user is
+# ec2-user (not ubuntu). SSH is only reachable from the operator CIDR
+# (terraform/security_groups.tf, eks_nodes SG).
+ansible_user: ec2-user
+ansible_become: true
+ansible_become_method: sudo
+ansible_python_interpreter: /usr/bin/python3
+
+# Node-side tasks in playbooks/patch.yml use `raw`, so they do not depend on
+# this interpreter being installed.

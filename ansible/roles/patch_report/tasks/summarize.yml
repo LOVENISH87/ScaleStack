@@ -3,7 +3,7 @@
 # or not attempted (never reached because an earlier server failed).
 - name: Summarize patch report
   ansible.builtin.command:
-    cmd: python3 {{ role_path }}/files/report_tool.py summary {{ patch_report_file }} {{ groups['app_servers'] | join(',') }}
+    cmd: python3 {{ role_path }}/files/report_tool.py summary {{ patch_report_file }} {{ groups['eks_nodes'] | join(',') }}
   delegate_to: localhost
   become: false
   run_once: true

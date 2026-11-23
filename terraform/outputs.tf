@@ -38,6 +38,11 @@ output "app_node_port" {
   value       = var.app_node_port
 }
 
+output "nagios_url" {
+  description = "Nagios UI, path-routed by the same ALB (digest login as nagiosadmin)."
+  value       = "http://${aws_lb.app.dns_name}/nagios/"
+}
+
 output "s3_bucket_name" {
   description = "Name of the S3 bucket for log backups."
   value       = aws_s3_bucket.logs.id

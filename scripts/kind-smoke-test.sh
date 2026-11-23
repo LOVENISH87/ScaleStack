@@ -7,7 +7,8 @@
 #          really scales out under /stress load.
 #
 # Usage: scripts/kind-smoke-test.sh
-# Env:   CLUSTER (kind cluster name), IMAGE, NODE_PORT, KEEP=1 to keep cluster
+# Env:   CLUSTER (kind cluster name), IMAGE, NODE_PORT, KEEP=1 to keep cluster,
+#        WITH_NAGIOS=1 to build/deploy the Nagios pod too (needs apt network)
 # ==============================================================================
 
 set -euo pipefail
@@ -17,6 +18,8 @@ CLUSTER="${CLUSTER:-scalestack-smoke}"
 IMAGE="${IMAGE:-scalestack-web:dev}"
 NODE_PORT="${NODE_PORT:-30080}"
 KEEP="${KEEP:-0}"
+WITH_NAGIOS="${WITH_NAGIOS:-0}"
+NAGIOS_IMAGE="${NAGIOS_IMAGE:-scalestack-nagios:dev}"
 
 PASSED=0
 FAILED=0
@@ -67,6 +70,11 @@ trap cleanup EXIT
 echo "==> building image ${IMAGE} with ${RUNTIME}"
 "${RUNTIME}" build -q -t "${IMAGE}" "${ROOT}/app" >/dev/null
 
+if [[ "${WITH_NAGIOS}" == "1" ]]; then
+  echo "==> building Nagios image ${NAGIOS_IMAGE}"
+  "${RUNTIME}" build -q -t "${NAGIOS_IMAGE}" "${ROOT}/nagios" >/dev/null
+fi
+
 if kind get clusters 2>/dev/null | grep -qx "${CLUSTER}"; then
   echo "==> reusing kind cluster '${CLUSTER}'"
 else
@@ -76,11 +84,40 @@ fi
 
 echo "==> loading image into kind"
 kind load docker-image "${IMAGE}" --name "${CLUSTER}" >/dev/null
+if [[ "${WITH_NAGIOS}" == "1" ]]; then
+  kind load docker-image "${NAGIOS_IMAGE}" --name "${CLUSTER}" >/dev/null
+fi
 
 echo "==> applying k8s manifests"
-kubectl apply -f "${ROOT}/k8s/" >/dev/null
+kubectl apply -f "${ROOT}/k8s/00-namespace.yaml" >/dev/null
+if [[ "${WITH_NAGIOS}" == "1" ]]; then
+  # The Nagios pod reads the ALB DNS from a ConfigMap; in kind there is no ALB,
+  # so it watches the in-cluster Service instead and the ALB check just fails.
+  kubectl -n scalestack create configmap scalestack-nagios-config \
+    --from-literal=alb_dns=scalestack-web.scalestack.svc.cluster.local \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl -n scalestack create secret generic scalestack-nagios-secret \
+    --from-literal=admin_password=smoke-test-only \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+fi
+for manifest in "${ROOT}"/k8s/*.yaml; do
+  if [[ "$(basename "${manifest}")" == "50-nagios.yaml" && "${WITH_NAGIOS}" != "1" ]]; then
+    continue
+  fi
+  kubectl apply -f "${manifest}" >/dev/null
+done
 kubectl -n scalestack set image deployment/scalestack-web "web=${IMAGE}" >/dev/null
 kubectl -n scalestack rollout status deployment/scalestack-web --timeout=600s
+
+if [[ "${WITH_NAGIOS}" == "1" ]]; then
+  kubectl -n scalestack set image deployment/scalestack-nagios "nagios=${NAGIOS_IMAGE}" >/dev/null
+  if kubectl -n scalestack rollout status deployment/scalestack-nagios --timeout=300s; then
+    pass "Nagios pod started and /healthz is answering"
+  else
+    fail "Nagios pod did not become ready"
+    kubectl -n scalestack logs deployment/scalestack-nagios --tail=50 || true
+  fi
+fi
 
 echo "==> installing metrics-server (HPA data source)"
 if ! kubectl -n kube-system get deployment metrics-server >/dev/null 2>&1; then

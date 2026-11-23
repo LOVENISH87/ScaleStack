@@ -151,8 +151,9 @@ resource "aws_launch_template" "nodes" {
   tag_specifications {
     resource_type = "instance"
     tags = {
-      Name    = "${var.project_name}-spot-node"
-      Role    = "app"
+      Name = "${var.project_name}-spot-node"
+      # Matches the dynamic inventory's eks_nodes group (ansible/inventory).
+      Role    = "eks-node"
       Project = var.project_name
       Lab     = "true"
     }
@@ -175,6 +176,9 @@ resource "aws_eks_node_group" "app" {
   # 70-90% cheaper than on-demand for a lab that lives a few hours.
   capacity_type  = "SPOT"
   instance_types = var.node_instance_types
+  # Pin the EKS-optimized AL2023 AMI: the Ansible node patch playbook drives
+  # dnf on an Amazon Linux 2023 node (ec2-user) and does not guess the OS.
+  ami_type = "AL2023_x86_64_STANDARD"
   # Volume size comes from the launch template's block device mapping.
 
   scaling_config {
