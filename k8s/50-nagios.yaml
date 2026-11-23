@@ -1,0 +1,94 @@
+# Nagios Core as a pod instead of a dedicated EC2 host.
+#
+# The ALB forwards /nagios* to NodePort 30081 (terraform/load_balancer.tf), so
+# the monitoring UI lives on the same entry point as the app. The pod creates
+# no state worth persisting: config is rendered at start, and history is lost
+# on restart -- fine for a lab, and it keeps the Deployment stateless.
+#
+# Prerequisites created by scripts/k8s-bootstrap.sh:
+#   ConfigMap scalestack-nagios-config  key alb_dns
+#   Secret    scalestack-nagios-secret  key admin_password
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scalestack-nagios
+  namespace: scalestack
+  labels:
+    app: scalestack-nagios
+    app.kubernetes.io/part-of: scalestack
+spec:
+  replicas: 1
+  # Single replica on a fixed NodePort: replace rather than surge.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: scalestack-nagios
+  template:
+    metadata:
+      labels:
+        app: scalestack-nagios
+    spec:
+      containers:
+        - name: nagios
+          # Replaced at deploy time with the ECR image URI
+          # (scripts/k8s-bootstrap.sh, tag :nagios).
+          image: scalestack-nagios:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          env:
+            - name: ALB_DNS
+              valueFrom:
+                configMapKeyRef:
+                  name: scalestack-nagios-config
+                  key: alb_dns
+            - name: NAGIOS_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: scalestack-nagios-secret
+                  key: admin_password
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 3
+---
+# NodePort 30081 is what the Terraform Nagios target group forwards to.
+# No PodDisruptionBudget on purpose: a PDB for a single replica would block
+# `kubectl drain` during the node patching workflow.
+apiVersion: v1
+kind: Service
+metadata:
+  name: scalestack-nagios
+  namespace: scalestack
+  labels:
+    app: scalestack-nagios
+    app.kubernetes.io/part-of: scalestack
+spec:
+  type: NodePort
+  selector:
+    app: scalestack-nagios
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      nodePort: 30081

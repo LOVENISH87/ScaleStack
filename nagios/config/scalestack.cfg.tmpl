@@ -1,0 +1,102 @@
+# Rendered at container start by entrypoint.sh (envsubst). Do not edit in place.
+# ${ALB_DNS} is the public ALB DNS name; the Service host is cluster-internal.
+
+define host {
+    host_name               scalestack-alb
+    alias                   ScaleStack ALB (public entry point)
+    address                 ${ALB_DNS}
+    max_check_attempts      3
+    check_interval          1
+    retry_interval          1
+    check_period            24x7
+    check_command           lab_check_http_host!${ALB_DNS}!/health
+    notification_interval   30
+    notification_period     24x7
+    notification_options    d,r
+    contact_groups          lab_admins
+}
+
+define host {
+    host_name               scalestack-web
+    alias                   ScaleStack Service (in-cluster ClusterIP)
+    address                 scalestack-web.scalestack.svc.cluster.local
+    max_check_attempts      3
+    check_interval          1
+    retry_interval          1
+    check_period            24x7
+    check_command           lab_check_http_service!80!/health
+    notification_interval   30
+    notification_period     24x7
+    notification_options    d,r
+    contact_groups          lab_admins
+}
+
+define service {
+    host_name             scalestack-alb
+    service_description   ALB health
+    check_command         lab_check_http_host!${ALB_DNS}!/health
+    max_check_attempts    3
+    check_interval        1
+    retry_interval        1
+    check_period          24x7
+    notification_interval 30
+    notification_period   24x7
+    notification_options  w,u,c,r
+    contact_groups        lab_admins
+}
+
+define service {
+    host_name             scalestack-alb
+    service_description   ALB root page
+    check_command         lab_check_http_host!${ALB_DNS}!/
+    max_check_attempts    3
+    check_interval        1
+    retry_interval        1
+    check_period          24x7
+    notification_interval 30
+    notification_period   24x7
+    notification_options  w,u,c,r
+    contact_groups        lab_admins
+}
+
+define service {
+    host_name             scalestack-web
+    service_description   Service health (ClusterIP)
+    check_command         lab_check_http_service!80!/health
+    max_check_attempts    3
+    check_interval        1
+    retry_interval        1
+    check_period          24x7
+    notification_interval 30
+    notification_period   24x7
+    notification_options  w,u,c,r
+    contact_groups        lab_admins
+}
+
+define service {
+    host_name             scalestack-web
+    service_description   Pod CPU utilization
+    check_command         lab_check_cpu_stats!80
+    max_check_attempts    2
+    check_interval        1
+    retry_interval        1
+    check_period          24x7
+    notification_interval 30
+    notification_period   24x7
+    notification_options  w,u,c,r
+    contact_groups        lab_admins
+}
+
+define service {
+    host_name             scalestack-web
+    service_description   Pod memory utilization
+    check_command         lab_check_mem_stats!80
+    max_check_attempts    2
+    check_interval        1
+    retry_interval        1
+    check_period          24x7
+    notification_interval 30
+    notification_period   24x7
+    notification_options  w,u,c,r
+    contact_groups        lab_admins
+}
