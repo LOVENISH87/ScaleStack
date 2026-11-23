@@ -49,6 +49,14 @@
     group: www-data
     mode: "0640"
 
+- name: Deploy custom Nagios CPU and Memory monitoring plugin (Practical 8)
+  ansible.builtin.copy:
+    src: check_system_metrics.py
+    dest: /usr/lib/nagios/plugins/check_system_metrics.py
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: Deploy lab Nagios object configuration
   ansible.builtin.template:
     src: lab.cfg.j2

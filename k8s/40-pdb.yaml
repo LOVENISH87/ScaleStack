@@ -1,0 +1,12 @@
+# Makes the Ansible/kubectl node-drain step genuinely zero-downtime: with the
+# default 2 replicas, only one pod may be voluntarily evicted at a time.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: scalestack-web
+  namespace: scalestack
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: scalestack-web

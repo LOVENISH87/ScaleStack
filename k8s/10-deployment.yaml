@@ -1,0 +1,91 @@
+# ScaleStack web application.
+#
+# CPU requests matter here: the HPA scales on utilisation relative to the
+# request (200m), so 40% means ~80m per pod. Limits cap a stressed pod at one
+# core, which is enough for the /stress demo to register clearly.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scalestack-web
+  namespace: scalestack
+  labels:
+    app: scalestack-web
+    app.kubernetes.io/part-of: scalestack
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0 # never drop below the desired replica count
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: scalestack-web
+  template:
+    metadata:
+      labels:
+        app: scalestack-web
+    spec:
+      terminationGracePeriodSeconds: 20
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          # Replaced at deploy time with the ECR image URI
+          # (scripts/k8s-bootstrap.sh). Never a floating "latest" in EKS.
+          image: scalestack-web:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: HEALTH_APP_PORT
+              value: "8080"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          resources:
+            requests:
+              cpu: 200m
+              memory: 96Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 1
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 2
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

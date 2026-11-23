@@ -1,0 +1,15 @@
+# Single-control-plane + one worker.
+#
+# The worker matters: on the default single-node kind cluster the control plane
+# already reserves ~950m CPU, so the 200m app pods and metrics-server cannot be
+# scheduled. A worker gets its own capacity, which lets the probes, the HPA and
+# the 40% target be exercised for real.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30080
+        hostPort: 30080
+        protocol: TCP
+  - role: worker

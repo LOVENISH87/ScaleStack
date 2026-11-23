@@ -1,10 +1,12 @@
 # Copy to terraform.tfvars (gitignored) and adjust. Never commit real values.
-aws_region    = "us-east-1"
+aws_region    = "ap-south-1"
 operator_cidr = "203.0.113.10/32" # Your public IP/32. NEVER 0.0.0.0/0.
 ssh_key_name  = "my-lab-keypair"
 
 # Optional overrides:
-# app_instance_type    = "t3.micro"
-# nagios_instance_type = "t3.micro"
-# app_port             = 8080
-# aws_region           = "us-east-1"
+# kubernetes_version  = "1.35"          # must be in EKS standard support
+# node_instance_types = ["t3.medium"]   # Spot capacity
+# node_desired_size   = 2
+# node_min_size       = 1
+# node_max_size       = 4
+# app_node_port       = 30080

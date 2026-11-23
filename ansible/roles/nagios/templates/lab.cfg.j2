@@ -41,6 +41,16 @@ define command {
 }
 
 define command {
+    command_name lab_check_cpu_remote
+    command_line $USER1$/check_system_metrics.py -H $HOSTADDRESS$ -p $ARG1$ -m cpu -w 70 -c 90
+}
+
+define command {
+    command_name lab_check_mem_remote
+    command_line $USER1$/check_system_metrics.py -H $HOSTADDRESS$ -p $ARG1$ -m mem -w 80 -c 95
+}
+
+define command {
     command_name lab_notify_host_by_email
     command_line /usr/bin/printf '%s\n' 'Host: $HOSTNAME$' 'State: $HOSTSTATE$' 'Output: $HOSTOUTPUT$' | /usr/bin/mail -s "ALERT Host $HOSTSTATE$: $HOSTNAME$" $CONTACTEMAIL$
 }
@@ -177,6 +187,33 @@ define service {
     check_command         lab_check_load
     max_check_attempts    3
     check_interval        3
+    retry_interval        1
+    check_period          24x7
+    notification_interval 30
+    notification_period   24x7
+    notification_options  w,u,c,r
+    contact_groups        lab_admins
+}
+define service {
+    host_name             app-{{ loop.index }}
+    service_description   CPU Utilization
+    check_command         lab_check_cpu_remote!{{ app_port | default(8080) }}
+    max_check_attempts    2
+    check_interval        1
+    retry_interval        1
+    check_period          24x7
+    notification_interval 30
+    notification_period   24x7
+    notification_options  w,u,c,r
+    contact_groups        lab_admins
+}
+
+define service {
+    host_name             app-{{ loop.index }}
+    service_description   Memory Utilization
+    check_command         lab_check_mem_remote!{{ app_port | default(8080) }}
+    max_check_attempts    2
+    check_interval        1
     retry_interval        1
     check_period          24x7
     notification_interval 30

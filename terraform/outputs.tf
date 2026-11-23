@@ -9,43 +9,33 @@ output "alb_url" {
 }
 
 output "target_group_arn" {
-  description = "ARN of the ALB target group the Auto Scaling Group registers with."
+  description = "ARN of the ALB target group the EKS node group is attached to."
   value       = aws_lb_target_group.app.arn
 }
 
-output "asg_name" {
-  description = "Name of the Auto Scaling Group."
-  value       = aws_autoscaling_group.app.name
+output "cluster_name" {
+  description = "EKS cluster name."
+  value       = aws_eks_cluster.app.name
 }
 
-output "app_instance_ids" {
-  description = "Instance IDs of the application worker servers."
-  value       = data.aws_instances.app_workers.ids
+output "cluster_endpoint" {
+  description = "EKS API server endpoint."
+  value       = aws_eks_cluster.app.endpoint
 }
 
-output "app_public_ips" {
-  description = "Public IPs of the application worker servers."
-  value       = data.aws_instances.app_workers.public_ips
+output "kubeconfig_command" {
+  description = "Run this to point kubectl at the cluster."
+  value       = "aws eks update-kubeconfig --region ${var.aws_region} --name ${aws_eks_cluster.app.name}"
 }
 
-output "app_private_ips" {
-  description = "Private IPs of the application worker servers."
-  value       = data.aws_instances.app_workers.private_ips
+output "node_group_name" {
+  description = "EKS managed (Spot) node group name."
+  value       = aws_eks_node_group.app.node_group_name
 }
 
-output "nagios_public_ip" {
-  description = "Public IP of the Nagios Core server (web UI and SSH from operator CIDR only)."
-  value       = aws_instance.nagios.public_ip
-}
-
-output "nagios_url" {
-  description = "Direct ALB URL for Nagios Core (bypasses college firewalls)."
-  value       = "http://${aws_lb.app.dns_name}/nagios4/"
-}
-
-output "nagios_private_ip" {
-  description = "Private IP of the Nagios Core server."
-  value       = aws_instance.nagios.private_ip
+output "app_node_port" {
+  description = "NodePort the Service binds and the ALB target group forwards to."
+  value       = var.app_node_port
 }
 
 output "s3_bucket_name" {

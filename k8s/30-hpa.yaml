@@ -1,0 +1,45 @@
+# The autoscaler the lab is about: 40% average CPU utilisation across pods,
+# 2 pods minimum (survives one node draining) and 6 maximum.
+#
+# Requires metrics-server. scripts/k8s-bootstrap.sh installs it, because EKS
+# does not ship it.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: scalestack-web
+  namespace: scalestack
+  labels:
+    app: scalestack-web
+    app.kubernetes.io/part-of: scalestack
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: scalestack-web
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 40
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      selectPolicy: Max
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 2
+          periodSeconds: 15
+    scaleDown:
+      stabilizationWindowSeconds: 60
+      selectPolicy: Max
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60

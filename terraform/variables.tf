@@ -1,5 +1,5 @@
 variable "aws_region" {
-  description = "AWS region for the lab, e.g. us-east-1."
+  description = "AWS region for the lab, e.g. ap-south-1."
   type        = string
   default     = "us-east-1"
 }
@@ -7,7 +7,7 @@ variable "aws_region" {
 variable "project_name" {
   description = "Project tag used to identify and tear down all lab resources."
   type        = string
-  default     = "health-gated-patching"
+  default     = "scalestack"
 
   validation {
     condition     = can(regex("^[a-z0-9-]+$", var.project_name))
@@ -16,7 +16,7 @@ variable "project_name" {
 }
 
 variable "operator_cidr" {
-  description = "CIDR allowed to SSH to lab instances (your public IP /32). Never 0.0.0.0/0."
+  description = "CIDR allowed to SSH to EKS worker nodes (your public IP /32). Never 0.0.0.0/0."
   type        = string
 
   validation {
@@ -26,7 +26,7 @@ variable "operator_cidr" {
 }
 
 variable "ssh_key_name" {
-  description = "Name of an existing AWS EC2 key pair used for SSH access."
+  description = "Name of an existing AWS EC2 key pair, used by Ansible to patch worker nodes."
   type        = string
 }
 
@@ -42,22 +42,46 @@ variable "public_subnet_cidrs" {
   default     = ["10.20.1.0/24", "10.20.2.0/24"]
 }
 
-variable "app_instance_type" {
-  description = "Instance type for the three application servers."
+variable "kubernetes_version" {
+  description = "EKS control plane version. Must be in standard support to stay cheap."
   type        = string
-  default     = "t3.micro"
+  default     = "1.35"
 }
 
-variable "nagios_instance_type" {
-  description = "Instance type for the Nagios Core server."
-  type        = string
-  default     = "t3.micro"
+variable "node_instance_types" {
+  description = "Spot instance types for the EKS managed node group."
+  type        = list(string)
+  default     = ["t3.medium"]
+}
+
+variable "node_desired_size" {
+  description = "Desired number of worker nodes."
+  type        = number
+  default     = 2
+}
+
+variable "node_min_size" {
+  description = "Minimum number of worker nodes."
+  type        = number
+  default     = 1
+}
+
+variable "node_max_size" {
+  description = "Maximum number of worker nodes the cluster autoscaler headroom allows."
+  type        = number
+  default     = 4
 }
 
 variable "app_port" {
-  description = "Port the demo application listens on."
+  description = "Port the demo application listens on inside the container."
   type        = number
   default     = 8080
+}
+
+variable "app_node_port" {
+  description = "Fixed NodePort the Kubernetes Service binds; the ALB target group points here."
+  type        = number
+  default     = 30080
 }
 
 variable "app_health_check_path" {

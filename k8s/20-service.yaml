@@ -1,0 +1,20 @@
+# NodePort 30080 is what the Terraform ALB target group (instance targets)
+# forwards to. A fixed nodePort keeps the Terraform target group stable and
+# avoids needing the AWS Load Balancer Controller / Helm.
+apiVersion: v1
+kind: Service
+metadata:
+  name: scalestack-web
+  namespace: scalestack
+  labels:
+    app: scalestack-web
+    app.kubernetes.io/part-of: scalestack
+spec:
+  type: NodePort
+  selector:
+    app: scalestack-web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      nodePort: 30080

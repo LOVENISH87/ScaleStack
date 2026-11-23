@@ -1,4 +1,5 @@
 # ALB: HTTP from the internet (demo only). Nothing else.
+# Egress is limited to the NodePort the Kubernetes Service binds.
 resource "aws_security_group" "alb" {
   name        = "${var.project_name}-alb-sg"
   description = "Internet-facing ALB for the lab. HTTP only."
@@ -13,17 +14,9 @@ resource "aws_security_group" "alb" {
   }
 
   egress {
-    description = "To app servers on the app port"
-    from_port   = var.app_port
-    to_port     = var.app_port
-    protocol    = "tcp"
-    cidr_blocks = [var.vpc_cidr]
-  }
-
-  egress {
-    description = "To Nagios on port 80"
-    from_port   = 80
-    to_port     = 80
+    description = "To worker nodes on the app NodePort"
+    from_port   = var.app_node_port
+    to_port     = var.app_node_port
     protocol    = "tcp"
     cidr_blocks = [var.vpc_cidr]
   }
@@ -31,39 +24,32 @@ resource "aws_security_group" "alb" {
   tags = { Name = "${var.project_name}-alb-sg" }
 }
 
-# App servers: no direct public HTTP. App port only from ALB SG (and the
-# Nagios SG for monitoring). SSH only from the operator CIDR.
-resource "aws_security_group" "app" {
-  name        = "${var.project_name}-app-sg"
-  description = "Application servers. No public HTTP; SSH from operator CIDR only."
+# EKS worker nodes: no public HTTP. The app NodePort is reachable only from the
+# ALB. SSH only from the operator CIDR (Ansible node patching).
+# kube-proxy needs node-to-node traffic within the group, hence the self rule.
+resource "aws_security_group" "eks_nodes" {
+  name        = "${var.project_name}-eks-nodes-sg"
+  description = "EKS worker nodes. NodePort from the ALB only; SSH from operator CIDR."
   vpc_id      = aws_vpc.lab.id
 
   ingress {
-    description     = "App traffic from the ALB only"
-    from_port       = var.app_port
-    to_port         = var.app_port
+    description     = "Application traffic from the ALB only"
+    from_port       = var.app_node_port
+    to_port         = var.app_node_port
     protocol        = "tcp"
     security_groups = [aws_security_group.alb.id]
   }
 
   ingress {
-    description     = "HTTP health checks from Nagios only"
-    from_port       = var.app_port
-    to_port         = var.app_port
-    protocol        = "tcp"
-    security_groups = [aws_security_group.nagios.id]
+    description = "Node-to-node pod networking and kube-proxy"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    self        = true
   }
 
   ingress {
-    description     = "SSH from the Nagios server for check_by_ssh-style probes (optional)"
-    from_port       = 22
-    to_port         = 22
-    protocol        = "tcp"
-    security_groups = [aws_security_group.nagios.id]
-  }
-
-  ingress {
-    description = "SSH from the operator CIDR only"
+    description = "SSH from the operator CIDR only (Ansible node patching)"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
@@ -71,54 +57,12 @@ resource "aws_security_group" "app" {
   }
 
   egress {
-    description = "Outbound for OS package updates and AWS APIs"
+    description = "Outbound for ECR pulls, package updates and AWS APIs"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = { Name = "${var.project_name}-app-sg" }
-}
-
-# Nagios: SSH from the operator CIDR only. Can reach app servers and the
-# ALB for checks; nothing else may reach its web UI except the operator.
-resource "aws_security_group" "nagios" {
-  name        = "${var.project_name}-nagios-sg"
-  description = "Nagios Core server. Web UI and SSH from operator CIDR only."
-  vpc_id      = aws_vpc.lab.id
-
-  ingress {
-    description     = "Nagios web UI from ALB"
-    from_port       = 80
-    to_port         = 80
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb.id]
-  }
-
-  ingress {
-    description = "Nagios web UI from anywhere (authenticated with nagiosadmin password)"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    description = "SSH from the operator CIDR only"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = [var.operator_cidr]
-  }
-
-  egress {
-    description = "Outbound for checks, package updates and AWS APIs"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = { Name = "${var.project_name}-nagios-sg" }
+  tags = { Name = "${var.project_name}-eks-nodes-sg" }
 }
