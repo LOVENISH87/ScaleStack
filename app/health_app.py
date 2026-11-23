@@ -33,8 +33,10 @@ last_cgroup = {"usage_usec": 0.0, "time": 0.0, "pct": 0.0}
 
 
 def get_cgroup_cpu_percent():
-    """Container CPU usage as a percentage of one core, or None if unavailable."""
-    global last_cgroup
+    """Container CPU usage as a percentage of one core, or None if unavailable.
+
+    Only the dict's contents are mutated, so no `global` statement is needed.
+    """
     try:
         usage = None
         with open(CGROUP_CPU_STAT) as f:
@@ -78,7 +80,7 @@ def get_memory_info():
 
 
 def get_cpu_percent():
-    global last_cpu
+    """Pod CPU percentage, preferring the cgroup counter over /proc/stat."""
     cgroup_pct = get_cgroup_cpu_percent()
     if cgroup_pct is not None:
         return cgroup_pct

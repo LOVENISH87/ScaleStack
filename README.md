@@ -341,6 +341,10 @@ bash -n scripts/k8s-bootstrap.sh scripts/kind-smoke-test.sh \
            scripts/backup_logs_to_s3.sh nagios/entrypoint.sh
 
 python3 -m py_compile app/health_app.py nagios/check_system_metrics.py
+pip install flake8 && flake8 app/ nagios/ lambda/          # config: .flake8
+
+# Manifest schema check, offline (no cluster, no credentials)
+kubeconform -strict -summary -ignore-missing-schemas k8s/
 
 cd ../ansible && ansible-playbook --syntax-check playbooks/patch.yml
 

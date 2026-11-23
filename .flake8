@@ -1,0 +1,5 @@
+[flake8]
+# health_app.py embeds its dashboard HTML as a string, so long lines are
+# expected there; E501 is disabled rather than reformatting the template.
+extend-ignore = E203, E501, W503
+exclude = .git,__pycache__,.terraform,docs,build,dist,node_modules

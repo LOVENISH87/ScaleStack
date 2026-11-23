@@ -2,9 +2,19 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
 
 jobs:
   lint-and-validate:
@@ -17,42 +27,115 @@ jobs:
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.8.0
+          terraform_version: 1.9.8
 
       - name: Terraform Format Check
+        run: terraform fmt -check -recursive terraform
+
+      - name: Terraform Validate
         run: |
-          cd terraform
-          terraform fmt -check
+          set -euo pipefail
+          terraform -chdir=terraform init -backend=false -input=false
+          terraform -chdir=terraform validate
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
-      - name: Install Linting & App Dependencies
+      - name: Install Linting Tools
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
-          pip install flake8
-          if [ -f app/requirements.txt ]; then pip install -r app/requirements.txt; fi
+          # The application is stdlib-only by design; there is no
+          # requirements.txt to install. Only the linters are needed.
+          pip install flake8 ansible-core
 
-      - name: Lint Python App
+      - name: Lint Python
         run: |
-          # Stop build if there are Python syntax errors or undefined names
-          flake8 app/ --count --select=E9,F63,F7,F82 --show-source --statistics
+          set -euo pipefail
+          flake8 app/ nagios/ lambda/
+          python -m py_compile app/health_app.py nagios/check_system_metrics.py lambda/processor.py
 
-  build-and-push-ecr:
-    name: Build & Push Docker Image to ECR
+      - name: Check Shell Scripts
+        run: |
+          set -euo pipefail
+          for script in scripts/*.sh nagios/entrypoint.sh; do
+            echo "bash -n ${script}"
+            bash -n "${script}"
+          done
+
+      - name: Ansible Syntax Check
+        run: |
+          set -euo pipefail
+          cd ansible
+          ANSIBLE_ROLES_PATH=./roles ansible-playbook \
+            --syntax-check -i localhost, playbooks/patch.yml
+
+      - name: Validate Kubernetes Manifests
+        run: |
+          set -euo pipefail
+          # Offline schema check: no cluster and no credentials required.
+          # Pinned on purpose: a moving "latest" would change CI underneath us.
+          curl -sSL --retry 3 --retry-delay 2 -o /tmp/kubeconform.tar.gz \
+            "https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz"
+          tar -xzf /tmp/kubeconform.tar.gz -C /tmp kubeconform
+          /tmp/kubeconform -strict -summary -ignore-missing-schemas k8s/
+
+  build-and-push:
+    name: Build & Push Images to ECR
     needs: lint-and-validate
+    # Opt-in: set repository variable DEPLOY_ENABLED=true plus the AWS role,
+    # region and repository variables to turn this on. Without them the job is
+    # skipped, so forks and pull requests stay green.
+    if: >-
+      github.ref == 'refs/heads/main' && github.event_name == 'push' &&
+      vars.DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      id-token: write # OIDC to AWS, no long-lived keys in the repo
+      contents: read
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Build Docker Image Locally
+      - name: Log in to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push the app and Nagios images
+        id: build
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+          TAG: ${{ github.sha }}
         run: |
-          cd app
-          docker build -t devops333-web:latest .
+          set -euo pipefail
+          IMAGE="${REGISTRY}/${REPOSITORY}"
+          docker build -t "${IMAGE}:${TAG}" -t "${IMAGE}:latest" app
+          docker push "${IMAGE}:${TAG}"
+          docker push "${IMAGE}:latest"
+          docker build -t "${IMAGE}:nagios" -t "${IMAGE}:nagios-${TAG}" nagios
+          docker push "${IMAGE}:nagios"
+          docker push "${IMAGE}:nagios-${TAG}"
+          echo "image=${IMAGE}:${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Roll the Deployment and wait for it
+        # Requires the runner to be able to assume a role that can describe the
+        # cluster. Off unless DEPLOY_TO_EKS=true.
+        if: vars.DEPLOY_TO_EKS == 'true'
+        env:
+          CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+          IMAGE: ${{ steps.build.outputs.image }}
+        run: |
+          set -euo pipefail
+          REGION="${AWS_REGION:-ap-south-1}"
+          aws eks update-kubeconfig --region "${REGION}" --name "${CLUSTER_NAME}"
+          kubectl -n scalestack set image deployment/scalestack-web "web=${IMAGE}"
+          kubectl -n scalestack rollout status deployment/scalestack-web --timeout=300s
