@@ -29,6 +29,5 @@ node patch instead of being silently returned to service.
 
 `health_app.py` still honours the `/etc/health-app/unhealthy` marker file from
 the original EC2/Puppet lab. Inside this container that path does not exist and
-the root filesystem is read-only, so the marker cannot be created: the in-pod
-equivalent is the readiness probe above. `ansible/playbooks/failure_demo.yml`
-is the EC2-era injector and is not used by the EKS flow.
+the root filesystem is read-only, so the marker cannot be created; the in-pod
+equivalent is the readiness probe above.

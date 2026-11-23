@@ -1,0 +1,77 @@
+# Pod-log archiving: the piece that makes the S3 bucket and the log-processor
+# Lambda actually used.
+#
+# Every 15 minutes a Job runs on one node, reads that node's container logs from
+# the kubelet's /var/log/pods directory, tars this namespace's recent logs, and
+# uploads s3://<bucket>/logs/<node>/<timestamp>.tar.gz -- the prefix/suffix the
+# bucket notification filters on, so the Lambda fires per archive.
+#
+# Required ConfigMap (created by scripts/k8s-bootstrap.sh):
+#   scalestack-log-config  key bucket
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: scalestack-log-archive
+  namespace: scalestack
+  labels:
+    app: scalestack-log-archive
+    app.kubernetes.io/part-of: scalestack
+spec:
+  schedule: "*/15 * * * *"
+  # A slow upload must not pile up behind the next run.
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app: scalestack-log-archive
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: archiver
+              # Derived from the official AWS CLI image, plus tar/gzip
+              # (log-archive/Dockerfile). Replaced at deploy time.
+              image: scalestack-log-archive:dev
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: S3_BUCKET
+                  valueFrom:
+                    configMapKeyRef:
+                      name: scalestack-log-config
+                      key: bucket
+                - name: NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
+                - name: LOG_WINDOW_MINUTES
+                  value: "60"
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 300m
+                  memory: 256Mi
+              securityContext:
+                # Reads root-owned kubelet log files; no extra privileges, no
+                # escalation beyond the image's own root user.
+                allowPrivilegeEscalation: false
+              volumeMounts:
+                - name: pod-logs
+                  mountPath: /var/log/pods
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: pod-logs
+              hostPath:
+                path: /var/log/pods
+                type: Directory
+            - name: tmp
+              emptyDir: {}

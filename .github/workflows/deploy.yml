@@ -124,6 +124,9 @@ jobs:
           docker build -t "${IMAGE}:nagios" -t "${IMAGE}:nagios-${TAG}" nagios
           docker push "${IMAGE}:nagios"
           docker push "${IMAGE}:nagios-${TAG}"
+          docker build -t "${IMAGE}:log-archive" -t "${IMAGE}:log-archive-${TAG}" log-archive
+          docker push "${IMAGE}:log-archive"
+          docker push "${IMAGE}:log-archive-${TAG}"
           echo "image=${IMAGE}:${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Roll the Deployment and wait for it

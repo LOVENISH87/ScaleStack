@@ -74,15 +74,16 @@ Design choices worth knowing before you read the code:
 ```
 terraform/    VPC, ALB + target groups + listener rule, EKS cluster, Spot node
               group, ECR, S3, Lambda, security groups, outputs
-k8s/          00-namespace, 10-deployment, 20-service, 30-hpa, 40-pdb, 50-nagios
+k8s/          00-namespace, 10-deployment, 20-service, 30-hpa, 40-pdb,
+              50-nagios, 60-log-archive
 nagios/       Nagios image: Dockerfile, entrypoint, Apache config, object config
+log-archive/  CronJob image + script that ships pod logs to S3
 app/          Demo HTTP application (stdlib only), Dockerfile
-scripts/      k8s-bootstrap.sh, kind-smoke-test.sh, kind-config.yaml,
-              backup_logs_to_s3.sh
+scripts/      k8s-bootstrap.sh, kind-smoke-test.sh, kind-config.yaml
 ansible/      inventory (tag-filtered AWS dynamic inventory), group_vars,
               playbooks/patch.yml, roles/patch_report
-puppet/       Application baseline manifest from the original EC2 lab
 lambda/       S3 log processor function source
+puppet/       EC2-era Puppet baseline (course artifact, unused on EKS)
 diagrams/     Architecture diagrams
 ```
 
@@ -146,6 +147,9 @@ docker push "$REPO:v1"
 
 docker build -t "$REPO:nagios" ../nagios
 docker push "$REPO:nagios"
+
+docker build -t "$REPO:log-archive" ../log-archive
+docker push "$REPO:log-archive"
 ```
 
 ## 3. Deploy to the cluster
@@ -153,6 +157,7 @@ docker push "$REPO:nagios"
 ```bash
 IMAGE_URI="$REPO:v1" \
 NAGIOS_IMAGE_URI="$REPO:nagios" \
+LOG_ARCHIVE_IMAGE_URI="$REPO:log-archive" \
 NAGIOS_ADMIN_PASSWORD='<choose-a-strong-password>' \
   ../scripts/k8s-bootstrap.sh
 ```
@@ -253,10 +258,40 @@ and `raw` also survives the reboot boundary.
 
 ## 7. Log archiving
 
-Terraform provisions the S3 bucket (`s3.tf`) and the Lambda log processor
-(`lambda.tf`), and the node IAM role can write to that bucket. The app and
-Nagios pods log to stdout (`kubectl logs`); `scripts/backup_logs_to_s3.sh`
-uploads collected logs on demand.
+The CronJob `scalestack-log-archive` runs every 15 minutes on one node. It reads
+that node's kubelet log directory (`/var/log/pods`, mounted read-only as a
+hostPath), tars the `scalestack_*` log files touched in the last hour, and
+uploads one object per run:
+
+```
+s3://<bucket>/logs/<node-name>/<UTC timestamp>.tar.gz
+```
+
+That key matches the bucket notification (`prefix logs/`, `suffix .tar.gz`), so
+every upload invokes the `scalestack-s3-log-processor` Lambda. Credentials are
+the node's IAM role (`s3:PutObject` on this bucket only) — no static keys — and
+the launch template's `http_put_response_hop_limit = 2` is what lets a pod reach
+the instance metadata service to pick that role up.
+
+Run one immediately and follow it:
+
+```bash
+kubectl -n scalestack create job --from=cronjob/scalestack-log-archive log-archive-now
+kubectl -n scalestack logs job/log-archive-now -f
+
+BUCKET=$(terraform -chdir=terraform output -raw s3_bucket_name)
+aws s3 ls "s3://$BUCKET/logs/" --recursive
+aws logs tail "/aws/lambda/$(terraform -chdir=terraform output -raw lambda_function_name)" --follow
+```
+
+Inspect an archive without downloading it:
+
+```bash
+aws s3 cp "s3://$BUCKET/logs/<node>/<timestamp>.tar.gz" - | tar -tzf -
+```
+
+Archiving is best-effort by design: it ships what the kubelet still has on disk
+inside the window, so logs rotated away before a run are not recovered.
 
 ## Cost
 
@@ -327,9 +362,14 @@ cluster.
 - `/stats` reports container CPU (what the HPA measures) but **node-level
   memory** from `/proc/meminfo`; a pod-scoped memory value from cgroup
   `memory.current` is a known gap.
-- `ansible/playbooks/bootstrap.yml`, `failure_demo.yml`, `roles/app` and
-  `roles/puppet_baseline` are the original EC2-era playbooks. They are kept for
-  the Puppet baseline deliverable but are **not** used by the EKS flow.
+- `puppet/` is the original EC2/Puppet app baseline. Nothing on EKS runs it, so
+  it is kept as a course artifact rather than as enforcement; the workload
+  baseline is the manifests plus the image.
+- There is no in-cluster failure-injection endpoint. In EKS the health gate is
+  the readiness probe and `kubectl rollout status`; the old `/health` marker
+  file needs a writable `/etc/health-app` that the hardened pod does not have.
+- Log archives are per-node and per-window, not a complete audit trail: the
+  CronJob has no persistent state and the Lambda only records object metadata.
 
 ## Validation
 
@@ -338,7 +378,7 @@ cd terraform && terraform init -backend=false && terraform validate \
   && terraform fmt -check -recursive
 
 bash -n scripts/k8s-bootstrap.sh scripts/kind-smoke-test.sh \
-           scripts/backup_logs_to_s3.sh nagios/entrypoint.sh
+           nagios/entrypoint.sh log-archive/archive_pod_logs.sh
 
 python3 -m py_compile app/health_app.py nagios/check_system_metrics.py
 pip install flake8 && flake8 app/ nagios/ lambda/          # config: .flake8

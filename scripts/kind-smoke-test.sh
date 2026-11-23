@@ -101,9 +101,17 @@ if [[ "${WITH_NAGIOS}" == "1" ]]; then
     --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 fi
 for manifest in "${ROOT}"/k8s/*.yaml; do
-  if [[ "$(basename "${manifest}")" == "50-nagios.yaml" && "${WITH_NAGIOS}" != "1" ]]; then
-    continue
-  fi
+  base="$(basename "${manifest}")"
+  case "${base}" in
+    50-nagios.yaml)
+      [[ "${WITH_NAGIOS}" == "1" ]] || continue
+      ;;
+    60-log-archive.yaml)
+      # Needs a real S3 bucket and the node instance role; kind has neither.
+      echo "    skipping ${base} (no S3 in kind)"
+      continue
+      ;;
+  esac
   kubectl apply -f "${manifest}" >/dev/null
 done
 kubectl -n scalestack set image deployment/scalestack-web "web=${IMAGE}" >/dev/null
